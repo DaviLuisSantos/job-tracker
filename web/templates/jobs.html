@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0 fw-bold">Vagas</h5>
+  <span class="text-muted small">{{ jobs|length }} resultado(s)</span>
+</div>
+
+<!-- ── Filtros ────────────────────────────────────────────── -->
+<div class="card p-3 mb-3">
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-sm-3">
+      <label class="form-label small text-muted mb-1">Perfil</label>
+      <select name="profile" class="form-select form-select-sm">
+        <option value="">Todos os perfis</option>
+        {% for p in profiles %}
+        <option value="{{ p }}" {% if p == selected_profile %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-3">
+      <label class="form-label small text-muted mb-1">Status</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="">Todos</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-2">
+      <label class="form-label small text-muted mb-1">Score mínimo</label>
+      <input type="number" name="min_score" value="{{ min_score or '' }}"
+             class="form-control form-control-sm" placeholder="0" min="0" max="100">
+    </div>
+    <div class="col-sm-auto">
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-funnel-fill me-1"></i>Filtrar
+      </button>
+      <a href="/jobs" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-x-lg me-1"></i>Limpar
+      </a>
+    </div>
+  </form>
+</div>
+
+<!-- ── Tabela ─────────────────────────────────────────────── -->
+<div class="card p-3">
+  <div class="table-responsive">
+    <table id="jobs-table" class="table table-hover table-sm mb-0" style="width:100%">
+      <thead class="table-light">
+        <tr>
+          <th>Score</th>
+          <th>Título</th>
+          <th>Empresa</th>
+          <th>Localização</th>
+          <th>Salário anual</th>
+          <th>Tipo</th>
+          <th>Status</th>
+          <th>Perfil</th>
+          <th>Data</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for j in jobs %}
+      {% set s = j.fit_score or 0 %}
+      <tr data-id="{{ j.id }}">
+        <td data-order="{{ s }}">
+          <span class="score-badge {{ 'score-ex' if s>=80 else ('score-gd' if s>=70 else ('score-md' if s>=50 else 'score-lo')) }}">
+            {{ s }}
+          </span>
+        </td>
+        <td class="fw-semibold" style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          {{ j.title or '—' }}
+        </td>
+        <td class="text-muted small" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          {{ j.company or '—' }}
+        </td>
+        <td class="text-muted small">{{ (j.location or '—')[:22] }}</td>
+        <td class="small" data-order="{{ j.salary_annual_min or 0 }}">
+          {% if j.salary_annual_min %}
+            <span class="text-success fw-semibold">
+              ${{ '{:,}'.format(j.salary_annual_min|int) }}
+              {% if j.salary_annual_max and j.salary_annual_max != j.salary_annual_min %}
+                – ${{ '{:,}'.format(j.salary_annual_max|int) }}
+              {% endif %}
+            </span>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ (j.work_type or '—')[:14] }}</td>
+        <td>
+          <span class="badge st-{{ j.status or 'new' }}">{{ j.status or 'new' }}</span>
+        </td>
+        <td><span class="badge bg-dark">{{ j.profile or '—' }}</span></td>
+        <td class="text-muted small">{{ (j.listed_at or '')[:10] }}</td>
+        <td>
+          <a href="{{ j.url }}" target="_blank"
+             class="btn btn-sm btn-outline-secondary py-0 px-1 lh-1"
+             onclick="event.stopPropagation()">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ── Modal de detalhes ──────────────────────────────────── -->
+<div class="modal fade" id="jobModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <div class="modal-header pb-2">
+        <div class="d-flex align-items-start gap-2 flex-wrap">
+          <span id="m-score" class="score-badge"></span>
+          <div>
+            <div class="fw-bold lh-1" id="m-title"></div>
+            <small class="text-muted" id="m-company-loc"></small>
+          </div>
+          <span id="m-profile" class="badge bg-dark ms-1"></span>
+        </div>
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Meta info -->
+        <div class="row g-2 mb-3 small">
+          <div class="col-sm-4">
+            <span class="text-muted"><i class="bi bi-cash me-1"></i>Salário:</span>
+            <strong id="m-salary">—</strong>
+          </div>
+          <div id="m-salary-annual-wrap" class="col-sm-4 d-none">
+            <span class="text-muted"><i class="bi bi-calendar-year me-1"></i>Anual:</span>
+            <strong id="m-salary-annual" class="text-success"></strong>
+          </div>
+          <div class="col-sm-4">
+            <span class="text-muted"><i class="bi bi-clock me-1"></i>Tipo:</span>
+            <span id="m-worktype">—</span>
+          </div>
+          <div class="col-sm-4">
+            <span class="text-muted"><i class="bi bi-calendar me-1"></i>Publicado:</span>
+            <span id="m-listed"></span>
+          </div>
+          <div class="col-sm-4">
+            <span class="text-muted"><i class="bi bi-tag me-1"></i>Status atual:</span>
+            <span id="m-status-badge" class="badge"></span>
+          </div>
+        </div>
+
+        <!-- Descrição -->
+        <h6 class="text-muted small text-uppercase fw-bold mb-1">Descrição</h6>
+        <div id="m-description" class="desc-box mb-3"></div>
+
+        <!-- Anotações -->
+        <h6 class="text-muted small text-uppercase fw-bold mb-1">Anotações</h6>
+        <textarea id="m-notes" class="form-control form-control-sm" rows="3"
+                  placeholder="Suas anotações sobre esta vaga..."></textarea>
+      </div>
+
+      <div class="modal-footer flex-wrap gap-1 pt-2">
+        <!-- Botões de status -->
+        <div class="d-flex flex-wrap gap-1 me-auto">
+          <button class="btn btn-outline-primary btn-sm"    onclick="setStatus('new')">Nova</button>
+          <button class="btn btn-outline-info btn-sm"       onclick="setStatus('reviewed')">Revisada</button>
+          <button class="btn btn-outline-success btn-sm"    onclick="setStatus('applied')">Candidatei</button>
+          <button class="btn btn-outline-warning btn-sm"    onclick="setStatus('interview')">Entrevista</button>
+          <button class="btn btn-outline-danger btn-sm"     onclick="setStatus('rejected')">Rejeitar</button>
+        </div>
+        <button id="save-notes-btn" class="btn btn-sm btn-secondary" onclick="saveNotes()">
+          <i class="bi bi-save me-1"></i>Salvar nota
+        </button>
+        <a id="m-link" href="#" target="_blank" class="btn btn-sm btn-primary">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Abrir vaga
+        </a>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+// ── Dados de jobs injetados pelo servidor ──────────────────
+const JOBS = {{ jobs_json | safe }};
+const BY_ID = {};
+JOBS.forEach(j => BY_ID[j.id] = j);
+
+// ── DataTables ─────────────────────────────────────────────
+$(document).ready(function () {
+  $('#jobs-table').DataTable({
+    pageLength: 25,
+    order: [[0, 'desc']],
+    language: {
+      search:       'Buscar:',
+      lengthMenu:   'Mostrar _MENU_ vagas',
+      info:         '_START_–_END_ de _TOTAL_ vagas',
+      infoEmpty:    '0 vagas',
+      zeroRecords:  'Nenhuma vaga encontrada.',
+      paginate:     { previous: '‹', next: '›' },
+    },
+    columnDefs: [
+      { targets: [9], orderable: false, searchable: false },
+    ],
+  });
+
+  // Clique na linha → modal
+  $('#jobs-table tbody').on('click', 'tr', function () {
+    const jobId = $(this).data('id');
+    if (jobId) openJob(jobId);
+  });
+});
+
+// ── Modal ──────────────────────────────────────────────────
+let currentJobId = null;
+const jobModal   = new bootstrap.Modal(document.getElementById('jobModal'));
+
+function openJob(jobId) {
+  const j = BY_ID[jobId];
+  if (!j) return;
+  currentJobId = jobId;
+
+  const score = parseInt(j.fit_score) || 0;
+
+  // Header
+  const scoreBadge = document.getElementById('m-score');
+  scoreBadge.textContent = score;
+  scoreBadge.className   = 'score-badge me-1 ' + scoreClass(score);
+
+  document.getElementById('m-title').textContent      = j.title      || '—';
+  document.getElementById('m-company-loc').textContent = [j.company, j.location].filter(Boolean).join(' · ') || '—';
+  document.getElementById('m-profile').textContent    = j.profile    || '—';
+  document.getElementById('m-link').href              = j.url        || '#';
+  document.getElementById('m-worktype').textContent   = j.work_type  || '—';
+  document.getElementById('m-listed').textContent     = (j.listed_at || '').slice(0, 10);
+  document.getElementById('m-notes').value            = j.notes      || '';
+
+  // Status badge
+  const sb = document.getElementById('m-status-badge');
+  const st = j.status || 'new';
+  sb.textContent = st;
+  sb.className   = 'badge st-' + st;
+
+  // Salary
+  document.getElementById('m-salary').textContent = j.salary || '—';
+  const annWrap = document.getElementById('m-salary-annual-wrap');
+  if (j.salary_annual_min) {
+    const lo = fmtNum(j.salary_annual_min);
+    const hi = (j.salary_annual_max && j.salary_annual_max !== j.salary_annual_min)
+               ? fmtNum(j.salary_annual_max) : null;
+    document.getElementById('m-salary-annual').textContent = hi
+      ? `$${lo} – $${hi} / ano`
+      : `$${lo} / ano`;
+    annWrap.classList.remove('d-none');
+  } else {
+    annWrap.classList.add('d-none');
+  }
+
+  // Description: pipe separators → newlines
+  const raw  = j.description || 'Sem descrição disponível.';
+  document.getElementById('m-description').textContent = raw.replace(/ \| /g, '\n');
+
+  jobModal.show();
+}
+
+// ── Atualizar status ───────────────────────────────────────
+function setStatus(status) {
+  if (!currentJobId) return;
+  fetch(`/api/job/${currentJobId}/status`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ status }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (!d.ok) return;
+    // Atualiza cache local
+    if (BY_ID[currentJobId]) BY_ID[currentJobId].status = status;
+    // Atualiza badge na linha da tabela
+    const row = document.querySelector(`[data-id="${currentJobId}"]`);
+    if (row) {
+      const badge = row.querySelector('.badge[class*="st-"]');
+      if (badge) { badge.className = `badge st-${status}`; badge.textContent = status; }
+    }
+    // Atualiza badge no modal
+    const sb = document.getElementById('m-status-badge');
+    sb.className   = 'badge st-' + status;
+    sb.textContent = status;
+  });
+}
+
+// ── Salvar anotações ───────────────────────────────────────
+function saveNotes() {
+  if (!currentJobId) return;
+  const notes = document.getElementById('m-notes').value;
+  fetch(`/api/job/${currentJobId}/notes`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ notes }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (!d.ok) return;
+    if (BY_ID[currentJobId]) BY_ID[currentJobId].notes = notes;
+    const btn = document.getElementById('save-notes-btn');
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Salvo!';
+    btn.disabled  = true;
+    setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 1600);
+  });
+}
+</script>
+{% endblock %}

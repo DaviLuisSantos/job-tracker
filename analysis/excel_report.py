@@ -210,15 +210,17 @@ def _build_summary(wb: Workbook, all_jobs: list[dict], runs: list[dict]):
 # ── Aba: por perfil ───────────────────────────────────────────────────────────
 
 JOB_COLUMNS = [
-    ("fit_score",    "Score",          7),
-    ("title",        "Título",         35),
-    ("company",      "Empresa",        22),
-    ("location",     "Localização",    20),
-    ("salary",       "Salário",        22),
-    ("work_type",    "Tipo",           14),
-    ("status",       "Status",         12),
-    ("listed_at",    "Publicado em",   18),
-    ("url",          "Link",           12),
+    ("fit_score",        "Score",          7),
+    ("title",            "Título",         35),
+    ("company",          "Empresa",        22),
+    ("location",         "Localização",    20),
+    ("salary",           "Salário",        22),
+    ("salary_annual_min","Sal. Anual Mín", 16),
+    ("salary_annual_max","Sal. Anual Máx", 16),
+    ("work_type",        "Tipo",           14),
+    ("status",           "Status",         12),
+    ("listed_at",        "Publicado em",   18),
+    ("url",              "Link",           12),
 ]
 
 
@@ -252,6 +254,16 @@ def _build_profile_sheet(wb: Workbook, profile_name: str, jobs: list[dict]):
                 cell.fill  = _score_fill(score)
                 cell.font  = _score_font(score)
                 cell.alignment = Alignment(horizontal="center")
+            elif field in ("salary_annual_min", "salary_annual_max"):
+                if val is not None and not pd.isna(val):
+                    cell.value        = int(val)
+                    cell.number_format = '$#,##0'
+                    cell.alignment    = Alignment(horizontal="right")
+                else:
+                    cell.value = ""
+                cell.font = Font(name="Arial", size=9)
+                if alt:
+                    cell.fill = PatternFill("solid", fgColor=C_ALT_ROW)
             elif field == "url" and val:
                 cell.value     = "Abrir vaga"
                 cell.hyperlink = str(val)
@@ -331,6 +343,16 @@ def _build_all_sheet(wb: Workbook, all_jobs: list[dict]):
                 cell.fill  = _score_fill(score)
                 cell.font  = _score_font(score)
                 cell.alignment = Alignment(horizontal="center")
+            elif field in ("salary_annual_min", "salary_annual_max"):
+                if val is not None and not pd.isna(val):
+                    cell.value         = int(val)
+                    cell.number_format = '$#,##0'
+                    cell.alignment     = Alignment(horizontal="right")
+                else:
+                    cell.value = ""
+                cell.font = Font(name="Arial", size=9)
+                if alt:
+                    cell.fill = PatternFill("solid", fgColor=C_ALT_ROW)
             elif field == "url" and val:
                 cell.value     = "Abrir vaga"
                 cell.hyperlink = str(val)

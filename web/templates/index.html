@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!-- ── KPI Cards ─────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  {% set kpis = [
+    (stats.total,     'Total de vagas',    'bi-briefcase',        'text-primary'),
+    (stats.new,       'Não lidas',         'bi-envelope',         'text-info'),
+    (stats.high_fit,  'Alto fit (≥ 70)',   'bi-star-fill',        'text-success'),
+    (stats.applied,   'Candidaturas',      'bi-send-fill',        'text-warning'),
+    (stats.avg_score, 'Score médio',       'bi-bar-chart-fill',   'text-secondary'),
+    (stats.max_score, 'Score máximo',      'bi-trophy-fill',      'text-danger'),
+  ] %}
+  {% for val, lbl, icon, color in kpis %}
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card p-3 text-center h-100">
+      <div class="kpi-val {{ color }}">{{ val }}</div>
+      <div class="kpi-lbl"><i class="bi {{ icon }} me-1"></i>{{ lbl }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Chart + Profile Breakdown ────────────────────────────── -->
+<div class="row g-3 mb-4">
+
+  <div class="col-lg-5">
+    <div class="card p-3 h-100">
+      <h6 class="text-muted mb-3"><i class="bi bi-bar-chart me-1"></i>Distribuição de scores</h6>
+      <canvas id="scoreChart"></canvas>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card p-3 h-100">
+      <h6 class="text-muted mb-3"><i class="bi bi-people me-1"></i>Por perfil</h6>
+      {% if by_profile %}
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Perfil</th><th class="text-center">Total</th>
+            <th class="text-center">Novas</th><th class="text-center">Alto fit</th>
+            <th class="text-center">Média</th><th class="text-center">Máx</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for name, s in by_profile.items() %}
+        <tr>
+          <td>
+            <a href="/jobs?profile={{ name }}" class="text-decoration-none">
+              <span class="badge bg-dark">{{ name }}</span>
+            </a>
+          </td>
+          <td class="text-center">{{ s.total }}</td>
+          <td class="text-center"><span class="badge bg-primary">{{ s.new }}</span></td>
+          <td class="text-center"><span class="badge bg-success">{{ s.high_fit }}</span></td>
+          <td class="text-center fw-bold">{{ s.avg_score }}</td>
+          <td class="text-center">
+            <span class="score-badge {{ 'score-ex' if s.max_score >= 80 else ('score-gd' if s.max_score >= 70 else 'score-md') }}">
+              {{ s.max_score }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted text-center mt-4">Nenhum dado ainda. Rode <code>.\run.ps1 --scrape</code></p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Top Vagas Novas ──────────────────────────────────────── -->
+{% if top_jobs %}
+<div class="card p-3 mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 class="text-muted mb-0"><i class="bi bi-lightning-fill text-warning me-1"></i>Top vagas novas (score ≥ 70)</h6>
+    <a href="/jobs?min_score=70&status=new" class="btn btn-sm btn-outline-primary">Ver todas →</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light">
+        <tr><th>Score</th><th>Título</th><th>Empresa</th><th>Localização</th><th>Salário</th><th>Perfil</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for j in top_jobs %}
+      {% set s = j.fit_score or 0 %}
+      <tr>
+        <td><span class="score-badge {{ 'score-ex' if s>=80 else ('score-gd' if s>=70 else 'score-md') }}">{{ s }}</span></td>
+        <td class="fw-semibold">{{ j.title or '—' }}</td>
+        <td class="text-muted">{{ j.company or '—' }}</td>
+        <td class="text-muted small">{{ j.location or '—' }}</td>
+        <td class="small">
+          {% if j.salary_annual_min %}
+            ${{ '{:,}'.format(j.salary_annual_min|int) }}
+            {% if j.salary_annual_max and j.salary_annual_max != j.salary_annual_min %}
+              – ${{ '{:,}'.format(j.salary_annual_max|int) }}
+            {% endif %}
+            <span class="text-muted">/ano</span>
+          {% elif j.salary %}
+            {{ j.salary }}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td><span class="badge bg-dark">{{ j.profile }}</span></td>
+        <td>
+          <a href="{{ j.url }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1 lh-1">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Últimas Execuções ─────────────────────────────────────── -->
+{% if runs %}
+<div class="card p-3">
+  <h6 class="text-muted mb-3"><i class="bi bi-clock-history me-1"></i>Últimas execuções</h6>
+  <table class="table table-sm mb-0">
+    <thead class="table-light">
+      <tr><th>Data/hora</th><th>Perfil</th><th>Keyword</th><th class="text-center">Novas</th><th class="text-center">Total</th></tr>
+    </thead>
+    <tbody>
+    {% for r in runs %}
+    <tr>
+      <td class="text-muted small">{{ (r.ran_at or '')[:16] }}</td>
+      <td><span class="badge bg-dark">{{ r.profile or '—' }}</span></td>
+      <td class="small">{{ r.keyword or '—' }}</td>
+      <td class="text-center fw-bold">{{ r.new_jobs or 0 }}</td>
+      <td class="text-center text-muted">{{ r.found or 0 }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+new Chart(document.getElementById('scoreChart'), {
+  type: 'bar',
+  data: {
+    labels: ['< 50', '50–59', '60–69', '70–79', '≥ 80'],
+    datasets: [{
+      data: {{ score_buckets }},
+      backgroundColor: ['#adb5bd','#ffc107','#fd7e14','#20c997','#198754'],
+      borderRadius: 6,
+      borderSkipped: false,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { beginAtZero: true, ticks: { precision: 0 } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+</script>
+{% endblock %}

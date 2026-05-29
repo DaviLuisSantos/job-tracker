@@ -59,6 +59,7 @@ PROFILES = {
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
+            "australian citizenship", "permanent resident",
             "AWS only", "10+ years", "NV1", "NV2",
             "security clearance required", "Australian citizenship required",
         ],
@@ -112,6 +113,7 @@ PROFILES = {
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
+            "australian citizenship", "permanent resident",
             "5+ years", "3+ years",
         ],
     },
@@ -152,6 +154,7 @@ PROFILES = {
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
+            "australian citizenship", "permanent resident",
             "site manager", "foreman", "supervisor",
             "5+ years", "3+ years", "degree required",
         ],
@@ -220,6 +223,7 @@ PROFILES = {
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
+            "australian citizenship", "permanent resident",
             "residential only", "5+ years", "3+ years",
         ],
     },
@@ -227,9 +231,34 @@ PROFILES = {
 }
 
 SCRAPER_CONFIG = {
-    "max_pages_per_keyword":  2,
-    "delay_between_pages":    1.0,
-    "max_concurrent_searches": 5,
+    "max_pages_per_keyword":   2,
+    "delay_between_pages":     1.0,
+    "max_concurrent_searches": 15,
+
+    # Descrição completa: busca a página individual de cada vaga nova
+    # Mais lento mas scoring muito mais preciso
+    "fetch_descriptions":      False,
+    "description_min_score":   60,
+
+    # Auto-validação: mesmo com fetch_descriptions=False, vagas com score
+    # acima deste limiar buscam descrição completa para evitar falsos positivos
+    # (requisitos de cidadania, years of experience etc. só aparecem no full desc)
+    # Coloque None para desativar.
+    "auto_enrich_threshold":   82,
+
+    # Scraping incremental: busca apenas vagas publicadas desde a última execução
+    # False = sempre busca todas (útil para a primeira execução ou re-indexação)
+    "incremental":             True,
+
+    # Score mínimo para disparar notificação ao final do scrape
+    "alert_min_score":         75,
+
+    # Candidato precisa de patrocínio de visto (482 etc.).
+    # Quando True, vagas que não mencionam "sponsor/visa/482" ficam limitadas
+    # a este score máximo — reflete o risco de não conseguir aplicar.
+    # Mude para False se você já tem visto de trabalho ou PR.
+    "visa_required":           True,
+    "no_sponsor_max_score":    72,
 }
 
 # Horário de execução automática do daemon (HH:MM)

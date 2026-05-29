@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Tracker{% if title %} — {{ title }}{% endif %}</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <!-- DataTables + Bootstrap 5 skin -->
+  <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+
+  <style>
+    body { background: #f0f2f5; font-size: .92rem; }
+
+    /* Navbar */
+    .navbar { box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+    .navbar-brand { font-weight: 800; letter-spacing: -.5px; font-size: 1.1rem; }
+
+    /* Cards */
+    .card { border: none; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+
+    /* Score badges */
+    .score-badge { font-size: .8rem; font-weight: 700; min-width: 36px;
+                   display: inline-block; text-align: center; border-radius: 6px; padding: 2px 6px; }
+    .score-ex  { background: #198754; color: #fff; }   /* ≥ 80 */
+    .score-gd  { background: #20c997; color: #fff; }   /* 70–79 */
+    .score-md  { background: #ffc107; color: #212529; } /* 50–69 */
+    .score-lo  { background: #adb5bd; color: #fff; }   /* < 50 */
+
+    /* Status badges */
+    .st-new       { background:#0d6efd; color:#fff }
+    .st-reviewed  { background:#0dcaf0; color:#212529 }
+    .st-applied   { background:#198754; color:#fff }
+    .st-interview { background:#ffc107; color:#212529 }
+    .st-rejected  { background:#dc3545; color:#fff }
+
+    /* Table */
+    #jobs-table tbody tr { cursor: pointer; }
+    #jobs-table tbody tr:hover { background: #e9f0fb !important; }
+    .table td { vertical-align: middle; }
+
+    /* Modal description */
+    .desc-box { white-space: pre-wrap; font-size: .85rem;
+                max-height: 280px; overflow-y: auto;
+                background: #f8f9fa; border-radius: 8px; padding: .75rem; }
+
+    /* Stat cards */
+    .kpi-val { font-size: 2rem; font-weight: 800; line-height: 1; }
+    .kpi-lbl { font-size: .75rem; color: #6c757d; margin-top: 4px; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <i class="bi bi-briefcase-fill me-2 text-info"></i>Job Tracker
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a class="nav-link {% if request.path == '/' %}active fw-bold{% endif %}" href="/">
+            <i class="bi bi-speedometer2 me-1"></i>Dashboard
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.path == '/jobs' %}active fw-bold{% endif %}" href="/jobs">
+            <i class="bi bi-list-ul me-1"></i>Vagas
+          </a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<div class="container pb-5">
+  {% block content %}{% endblock %}
+</div>
+
+<!-- JS bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+  // Shared score-class helper
+  function scoreClass(s) {
+    s = parseInt(s) || 0;
+    if (s >= 80) return 'score-ex';
+    if (s >= 70) return 'score-gd';
+    if (s >= 50) return 'score-md';
+    return 'score-lo';
+  }
+  function fmtNum(n) {
+    return Number(n).toLocaleString('en-AU');
+  }
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
