@@ -24,7 +24,6 @@ _POS_SPONSOR_SIGNALS = (
     "sponsorship offered", "sponsorship considered",
     "will sponsor", "open to sponsor",
     "we sponsor", "we will sponsor",
-    "relocation assistance",            # forte indicador de abertura para migração
 )
 
 # Detecta exigência de cidadania australiana ou PR.
@@ -33,6 +32,8 @@ _POS_SPONSOR_SIGNALS = (
 #   "Must be an Australian Citizen"
 #   "AU Citizen", "Citizens Only"
 #   "NV1 / NV2 Clearance" (exige cidadania)
+#   "New Zealand Citizenship" (visto especial NZ→AU, não é 482)
+#   "full Australian working rights - essential" (já precisa ter direito de trabalhar)
 # ⚠  Se você já é cidadão/PR, remova ou comente este bloco em calculate_fit_score.
 _CITIZEN_REQUIRED_RE = re.compile(
     r'australian\s+citizen'         # "Australian Citizenship", "Australian Citizen or PR"
@@ -45,7 +46,12 @@ _CITIZEN_REQUIRED_RE = re.compile(
     # "must hold/have permanent residency" — contexto de exigência
     r'|must\s+(?:hold|have|provide|show)\s+(?:australian\s+)?permanent\s+residen'
     r'|nv[12]\s+(?:security\s+)?clearance'
-    r'|top\s+secret\s+clearance',
+    r'|top\s+secret\s+clearance'
+    # "New Zealand Citizenship" — visto especial NZ→AU, não é patrocínio 482 real
+    r'|new\s+zealand\s+citizen'
+    # "full Australian working rights - essential" — candidato já deve ter direito de trabalhar
+    # Captura variantes com hífen, em dash, ou só a palavra "essential" logo após
+    r'|(?:full\s+)?australian\s+working\s+rights\s*[-–—]?\s*essential',
     re.I,
 )
 
@@ -98,9 +104,10 @@ def calculate_fit_score(
     ]).lower()
     full_text = f"{title_text} {body_text}"
 
-    # Detecta restrição de cidadania antes de somar pontos
-    # (usado como hard cap ao final — penalidade fixa não resolve quando há muitos positivos)
-    citizen_required = bool(_CITIZEN_REQUIRED_RE.search(full_text))
+    # Cidadania exigida = disqualificador absoluto para quem precisa de visto.
+    # Retorna 0 antes de qualquer cálculo — vaga não deve aparecer em nenhuma lista.
+    if bool(_CITIZEN_REQUIRED_RE.search(full_text)):
+        return 0
 
     score = 50
 
@@ -147,16 +154,12 @@ def calculate_fit_score(
             if signal in full_text:
                 score += 12
 
-    # ── Hard cap: cidadania exigida → máximo 60 ───────────────────
-    if citizen_required:
-        score = min(score, 60)
-
     # ── Cap para vagas sem sponsorship confirmado (visa_required=True) ──
     # Bypass do cap só com sinais específicos como "482", "employer sponsored",
     # "visa sponsorship available" etc. — não basta "sponsor" genérico no teaser.
     # Isso evita que "Visa sponsorship is not available" ou "sponsorship" em
     # bullet point neutro sejam confundidos com oferta real de visto.
-    if visa_required and not citizen_required:
+    if visa_required:
         if not _sponsor_confirmed:
             score = min(score, no_sponsor_max)
 

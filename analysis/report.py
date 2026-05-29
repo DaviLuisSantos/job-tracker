@@ -22,7 +22,16 @@ def generate_report(profile: str | None = None):
         console.print(f"[yellow]Nenhuma vaga no banco para {hint}. Rode o scraper primeiro.[/yellow]")
         return
 
-    df = pd.DataFrame(jobs)
+    df_all = pd.DataFrame(jobs)
+
+    # Score 0 = cidadania/working rights exigidos — disqualificador absoluto
+    disqualified = int((df_all["fit_score"] == 0).sum())
+    df = df_all[df_all["fit_score"] > 0].copy()
+
+    if df.empty:
+        console.print("[yellow]Nenhuma vaga elegível no banco (todas disqualificadas).[/yellow]")
+        return
+
     title_suffix = f" — {profile}" if profile else " — todos os perfis"
 
     # ── Resumo ────────────────────────────────────────────────
@@ -40,6 +49,8 @@ def generate_report(profile: str | None = None):
     summary.add_row("Alto fit (>= 70)",  f"[green]{high_fit}[/green]")
     summary.add_row("Candidaturas",      f"[blue]{int(applied)}[/blue]")
     summary.add_row("Score medio",       f"{avg_score:.1f}")
+    if disqualified:
+        summary.add_row("Disqualificadas",   f"[red]{disqualified}[/red] [dim](cidadania/working rights)[/dim]")
 
     console.print(Panel(summary, title=f"Resumo{title_suffix}", border_style="cyan"))
 

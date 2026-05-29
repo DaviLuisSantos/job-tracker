@@ -259,19 +259,21 @@ def fetch_new_jobs(profile: str | None = None) -> list[dict]:
 
 
 def fetch_for_review(profile: str | None = None, min_score: int = 0, limit: int = 100) -> list[dict]:
+    # fit_score > 0: score 0 = cidadania/working rights exigidos, nunca mostrar
+    effective_min = max(min_score, 1)
     with get_conn() as conn:
         if profile:
             rows = conn.execute(
                 "SELECT * FROM jobs WHERE status='new' AND fit_score>=? "
                 "AND ',' || profiles || ',' LIKE '%,' || ? || ',%' "
                 "ORDER BY fit_score DESC, listed_at DESC LIMIT ?",
-                (min_score, profile, limit),
+                (effective_min, profile, limit),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT * FROM jobs WHERE status='new' AND fit_score>=? "
                 "ORDER BY profile, fit_score DESC, listed_at DESC LIMIT ?",
-                (min_score, limit),
+                (effective_min, limit),
             ).fetchall()
         return [dict(r) for r in rows]
 

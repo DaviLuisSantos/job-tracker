@@ -376,11 +376,11 @@ def _build_all_sheet(wb: Workbook, all_jobs: list[dict]):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def export_excel(profile: str | None = None) -> Path:
-    all_jobs = fetch_all_jobs(profile)
+    all_jobs = [j for j in fetch_all_jobs(profile) if (j.get("fit_score") or 0) > 0]
     runs     = fetch_scrape_runs(profile, limit=20)
 
     if not all_jobs:
-        console.print("[yellow]Nenhuma vaga para exportar.[/yellow]")
+        console.print("[yellow]Nenhuma vaga elegível para exportar.[/yellow]")
         return None
 
     wb = Workbook()

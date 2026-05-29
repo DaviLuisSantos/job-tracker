@@ -59,7 +59,7 @@ def _safe_jobs_json(jobs: list[dict]) -> str:
 
 @app.route("/")
 def dashboard():
-    jobs  = fetch_all_jobs()
+    jobs  = [j for j in fetch_all_jobs() if (j.get("fit_score") or 0) > 0]
     runs  = fetch_scrape_runs(limit=6)
     stats = _stats(jobs)
 
@@ -97,11 +97,20 @@ def dashboard():
 def jobs_page():
     profile   = request.args.get("profile", "")
     status    = request.args.get("status", "")
+    location  = request.args.get("location", "")
     min_score = int(request.args.get("min_score") or 0)
 
-    jobs = fetch_all_jobs(profile or None)
+    all_jobs = [j for j in fetch_all_jobs(profile or None) if (j.get("fit_score") or 0) > 0]
+
+    # Localizações únicas para o dropdown (antes de filtrar)
+    locations = sorted({j["location"] for j in all_jobs if j.get("location")})
+
+    jobs = all_jobs
     if status:
         jobs = [j for j in jobs if j.get("status") == status]
+    if location:
+        loc_lower = location.lower()
+        jobs = [j for j in jobs if loc_lower in (j.get("location") or "").lower()]
     if min_score:
         jobs = [j for j in jobs if (j.get("fit_score") or 0) >= min_score]
 
@@ -110,8 +119,10 @@ def jobs_page():
         jobs_json=_safe_jobs_json(jobs),
         profiles=list(PROFILES.keys()),
         statuses=_STATUSES,
+        locations=locations,
         selected_profile=profile,
         selected_status=status,
+        selected_location=location,
         min_score=min_score,
     )
 
