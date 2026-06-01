@@ -17,6 +17,7 @@ from scrapers.seek import run_seek_scraper, enrich_stored_jobs
 from analysis.scoring import calculate_fit_score
 from analysis.report import generate_report
 from analysis.excel_report import export_excel
+from analysis.ai_export import export_for_ai
 from analysis.review import review_jobs
 from analysis.notifications import notify_high_score
 from config.config import PROFILES, SCRAPER_CONFIG, SCHEDULE_TIME
@@ -26,15 +27,16 @@ console = Console()
 
 def _parse_args():
     args      = sys.argv[1:]
-    scrape    = "--scrape"  in args or "--run" in args
-    report    = "--report"  in args
-    export    = "--export"  in args
-    review    = "--review"  in args
+    scrape    = "--scrape"    in args or "--run" in args
+    report    = "--report"    in args
+    export    = "--export"    in args
+    ai_export = "--ai-export" in args
+    review    = "--review"    in args
     full_desc = "--full-desc" in args
-    rescore   = "--rescore" in args
-    enrich    = "--enrich"  in args
-    web       = "--web"     in args
-    explain   = "--explain" in args
+    rescore   = "--rescore"   in args
+    enrich    = "--enrich"    in args
+    web       = "--web"       in args
+    explain   = "--explain"   in args
 
     profile   = None
     min_score = 0
@@ -61,7 +63,7 @@ def _parse_args():
             except ValueError:
                 pass
 
-    return scrape, report, export, review, full_desc, rescore, enrich, web, explain, profile, min_score, port
+    return scrape, report, export, ai_export, review, full_desc, rescore, enrich, web, explain, profile, min_score, port
 
 
 async def run_all(profile: str | None = None):
@@ -87,6 +89,7 @@ async def run_all(profile: str | None = None):
 
     generate_report(profile)
     export_excel(profile)
+    export_for_ai(profile)
 
     # Notificação de vagas com alto score
     alert_min = SCRAPER_CONFIG.get("alert_min_score", 75)
@@ -207,7 +210,7 @@ def run_sync(profile: str | None = None):
 
 def main():
     init_db()
-    scrape, report, export, review, full_desc, rescore, enrich, web, explain, profile, min_score, port = _parse_args()
+    scrape, report, export, ai_export, review, full_desc, rescore, enrich, web, explain, profile, min_score, port = _parse_args()
 
     if scrape:
         if full_desc:
@@ -247,6 +250,10 @@ def main():
 
     if export:
         export_excel(profile)
+        return
+
+    if ai_export:
+        export_for_ai(profile, min_score=min_score)
         return
 
     if review:

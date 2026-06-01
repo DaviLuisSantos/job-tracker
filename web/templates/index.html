@@ -66,7 +66,12 @@
         </tbody>
       </table>
       {% else %}
-      <p class="text-muted text-center mt-4">Nenhum dado ainda. Rode <code>.\run.ps1 --scrape</code></p>
+      <p class="text-muted text-center mt-4">
+        Nenhum dado ainda.
+        <a href="#" class="text-info" data-bs-toggle="modal" data-bs-target="#runModal">
+          Clique em Executar para iniciar o primeiro scrape.
+        </a>
+      </p>
       {% endif %}
     </div>
   </div>

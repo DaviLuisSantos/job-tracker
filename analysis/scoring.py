@@ -1,4 +1,5 @@
 import re
+import functools
 
 # ── Padrões pré-compilados ────────────────────────────────────────────────────
 
@@ -54,6 +55,60 @@ _CITIZEN_REQUIRED_RE = re.compile(
     r'|(?:full\s+)?australian\s+working\s+rights\s*[-–—]?\s*essential',
     re.I,
 )
+
+# ── Matching sofisticado ─────────────────────────────────────────────────────
+#
+# Problemas do `"sinal" in texto` simples:
+#   1. Sem word boundaries: "sponsorship" bate em "no sponsorship available"
+#      e ainda soma +8 mesmo que _NEG_SPONSOR_RE depois bloqueie o +20.
+#   2. "C#" pode bater como substring de tokens maiores.
+#   3. "482" pode bater em "0482…" (número de telefone).
+#
+# Solução:
+#   • _compile_signal — regex com lookaround (?<!\w)…(?!\w) que funciona
+#     corretamente com caracteres especiais (.NET, C#, Node.js, $36…).
+#   • _match_signal   — itera os matches e rejeita os que estão precedidos
+#     por uma palavra de negação dentro de uma janela de 80 chars.
+
+_NEGATION_CONTEXT_RE = re.compile(
+    r'\b(?:no|not|without|cannot|can\'t|can\s+not|unable\s+to|never|'
+    r'don\'t|do\s+not|won\'t|will\s+not)\b',
+    re.I,
+)
+
+
+@functools.lru_cache(maxsize=512)
+def _compile_signal(signal: str) -> re.Pattern:
+    """
+    Compila um sinal em regex com word-boundary lookaround.
+
+    Usa (?<!\\w) / (?!\\w) em vez de \\b porque \\b falha com tokens que
+    começam/terminam em caracteres não-alfanuméricos (C#, .NET, $36…).
+    """
+    return re.compile(r'(?<!\w)' + re.escape(signal) + r'(?!\w)', re.I)
+
+
+def _match_signal(signal: str, text: str, negation_window: int = 80) -> bool:
+    """
+    Retorna True se o sinal aparece no texto em contexto NÃO negado.
+
+    Para cada match, examina os `negation_window` caracteres anteriores:
+    se contiver uma palavra de negação (no, not, without, cannot…),
+    o match é descartado.  Retorna True no primeiro match válido.
+
+    Exemplos:
+        _match_signal("sponsorship", "no sponsorship available")  → False
+        _match_signal("sponsorship", "visa sponsorship provided") → True
+        _match_signal("C#", "C# developer required")             → True
+        _match_signal(".NET", "not a .NET role")                  → False
+    """
+    pat = _compile_signal(signal)
+    for m in pat.finditer(text):
+        pre = text[max(0, m.start() - negation_window) : m.start()]
+        if not _NEGATION_CONTEXT_RE.search(pre):
+            return True          # pelo menos um match não-negado
+    return False
+
 
 # Frases que indicam vaga aberta a quem não tem experiência
 _NO_EXPERIENCE_SIGNALS = [
@@ -112,46 +167,61 @@ def calculate_fit_score(
     score = 50
 
     # ── Sinais do perfil ──────────────────────────────────────────
+    # Positivos: word boundaries + verificação de contexto negado.
+    # Ex: "sponsorship" em "no sponsorship available" NÃO soma pontos.
     for signal in positive_signals:
-        sig = signal.lower()
-        if sig in title_text:
+        if _match_signal(signal, title_text):
             score += 16          # título: peso 2×
-        elif sig in body_text:
+        elif _match_signal(signal, body_text):
             score += 8
 
+    # Negativos: word boundaries, sem verificação de negação
+    # (negação de um sinal negativo seria bom, mas é raro e complexo).
     for signal in negative_signals:
-        sig = signal.lower()
-        if sig in title_text:
+        sig_re = _compile_signal(signal)
+        if sig_re.search(title_text):
             score -= 30          # negativo no título: descarte quase certo
-        elif sig in body_text:
+        elif sig_re.search(body_text):
             score -= 15
 
     # ── Boosts / penalidades universais ──────────────────────────
 
-    # Patrocínio de visto (+20) — só quando mencionado positivamente
+    # Patrocínio de visto (+20) — só quando mencionado positivamente.
+    # _NEG_SPONSOR_RE é a proteção primária aqui; usa substring simples porque
+    # "sponsor" deve bater em "sponsorship", "sponsored", etc.
+    # O problema de "no sponsorship" já foi corrigido no loop de positive_signals
+    # acima via _match_signal — aqui não há dupla contagem.
     _sponsor_neg       = bool(_NEG_SPONSOR_RE.search(full_text))
     _sponsor_boost     = "sponsor" in full_text and not _sponsor_neg
-    _sponsor_confirmed = any(s in full_text for s in _POS_SPONSOR_SIGNALS)
+    # _POS_SPONSOR_SIGNALS são substrings e podem colidir com frases negadas
+    # (ex: "no sponsorship available" contém "sponsorship available").
+    # Gateamos ambos por _sponsor_neg para evitar falso positivo.
+    _sponsor_confirmed = (not _sponsor_neg) and any(
+        s in full_text for s in _POS_SPONSOR_SIGNALS
+    )
 
     if _sponsor_boost or _sponsor_confirmed:
         score += 20
 
     # Modalidade de trabalho
-    if "remote" in full_text:
+    if _compile_signal("remote").search(full_text):
         score += 10
-    elif "hybrid" in full_text:
+    elif _compile_signal("hybrid").search(full_text):
         score += 5
 
     # FIFO (+15) — só aplica quando "fifo" não está nos sinais do perfil
     # (evita double-count para o perfil fifo que já tem "FIFO" em positive_signals)
     _fifo_in_profile = any("fifo" in s.lower() or "fly-in" in s.lower() for s in positive_signals)
-    if not _fifo_in_profile and ("fifo" in full_text or "fly-in fly-out" in full_text):
+    if not _fifo_in_profile and (
+        _compile_signal("fifo").search(full_text)
+        or _compile_signal("fly-in fly-out").search(full_text)
+    ):
         score += 15
 
     # ── Boost entrada (perfis não-tech) ───────────────────────────
     if entry_level_boost:
         for signal in _NO_EXPERIENCE_SIGNALS:
-            if signal in full_text:
+            if _match_signal(signal, full_text):
                 score += 12
 
     # ── Cap para vagas sem sponsorship confirmado (visa_required=True) ──

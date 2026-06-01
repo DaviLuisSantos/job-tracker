@@ -76,6 +76,10 @@
           </a>
         </li>
       </ul>
+      <button class="btn btn-sm btn-outline-info fw-semibold"
+              data-bs-toggle="modal" data-bs-target="#runModal">
+        <i class="bi bi-play-circle-fill me-1"></i>Executar
+      </button>
     </div>
   </div>
 </nav>
@@ -105,5 +109,203 @@
   }
 </script>
 {% block scripts %}{% endblock %}
+
+<!-- ── Modal: Executar tarefa ──────────────────────────────────────────────── -->
+<div class="modal fade" id="runModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-play-circle-fill text-info me-2"></i>Executar tarefa
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+
+        <!-- Opções -->
+        <div class="row g-2 mb-3 align-items-end">
+          <div class="col-sm-4">
+            <label class="form-label small text-muted mb-1">Ação</label>
+            <select id="run-action" class="form-select form-select-sm" onchange="onRunActionChange()">
+              <option value="scrape">🔍 Scrape — buscar novas vagas</option>
+              <option value="enrich">📄 Enriquecer descrições</option>
+              <option value="rescore">🔄 Re-calcular scores</option>
+            </select>
+          </div>
+          <div class="col-sm-3">
+            <label class="form-label small text-muted mb-1">Perfil</label>
+            <select id="run-profile" class="form-select form-select-sm">
+              <option value="">Todos os perfis</option>
+              {% for p in profile_names %}
+              <option value="{{ p }}">{{ p }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Opções extras: scrape -->
+          <div id="run-extra-scrape" class="col-sm-5">
+            <div class="form-check mt-4">
+              <input class="form-check-input" type="checkbox" id="run-full-desc">
+              <label class="form-check-label small" for="run-full-desc">
+                Buscar descrições completas <span class="text-muted">(mais lento)</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Opções extras: enrich -->
+          <div id="run-extra-enrich" class="col-sm-5 d-none">
+            <label class="form-label small text-muted mb-1">Score mínimo</label>
+            <input type="number" id="run-min-score" class="form-control form-control-sm"
+                   value="60" min="0" max="100">
+          </div>
+        </div>
+
+        <!-- Painel de log (oculto até iniciar) -->
+        <div id="run-log-wrap" class="d-none">
+          <label class="form-label small text-muted mb-1">
+            <i class="bi bi-terminal me-1"></i>Log de execução
+          </label>
+          <div id="run-log"
+               class="rounded p-3 font-monospace small text-white"
+               style="background:#1a1a2e; height:300px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <div id="run-result" class="me-auto small d-none"></div>
+        <button id="run-refresh-btn"
+                class="btn btn-outline-primary btn-sm d-none"
+                onclick="location.reload()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Atualizar página
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                data-bs-dismiss="modal">Fechar</button>
+        <button id="run-btn" class="btn btn-info btn-sm text-white fw-semibold"
+                onclick="startRun()">
+          <i class="bi bi-play-fill me-1"></i>Executar
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Run Modal ─────────────────────────────────────────────────────────────────
+let _runTaskId       = null;
+let _runPollTimer    = null;
+let _runLogFrom      = 0;
+
+function onRunActionChange() {
+  const v = document.getElementById('run-action').value;
+  document.getElementById('run-extra-scrape').classList.toggle('d-none', v !== 'scrape');
+  document.getElementById('run-extra-enrich').classList.toggle('d-none', v !== 'enrich');
+}
+
+function _resetRunModal() {
+  _runTaskId    = null;
+  _runLogFrom   = 0;
+  if (_runPollTimer) { clearInterval(_runPollTimer); _runPollTimer = null; }
+  document.getElementById('run-log').textContent = '';
+  document.getElementById('run-log-wrap').classList.add('d-none');
+  document.getElementById('run-result').classList.add('d-none');
+  document.getElementById('run-refresh-btn').classList.add('d-none');
+  const btn = document.getElementById('run-btn');
+  btn.disabled  = false;
+  btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Executar';
+}
+
+// Reset quando o modal abre
+document.getElementById('runModal').addEventListener('show.bs.modal', _resetRunModal);
+
+function startRun() {
+  const action    = document.getElementById('run-action').value;
+  const profile   = document.getElementById('run-profile').value;
+  const fullDesc  = document.getElementById('run-full-desc').checked;
+  const minScore  = parseInt(document.getElementById('run-min-score').value) || 0;
+
+  // Mostra log, desabilita botão
+  document.getElementById('run-log-wrap').classList.remove('d-none');
+  document.getElementById('run-result').classList.add('d-none');
+  document.getElementById('run-refresh-btn').classList.add('d-none');
+  document.getElementById('run-log').textContent = '';
+  _runLogFrom = 0;
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Rodando…';
+
+  fetch('/api/run', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({
+      action,
+      profile:    profile || null,
+      full_desc:  fullDesc,
+      min_score:  minScore,
+    }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { _showRunError(d.error); return; }
+    _runTaskId  = d.task_id;
+    _runPollTimer = setInterval(_pollRun, 1000);
+  })
+  .catch(e => _showRunError(String(e)));
+}
+
+function _appendLog(lines) {
+  const el = document.getElementById('run-log');
+  lines.forEach(line => {
+    el.textContent += line + '\n';
+  });
+  el.scrollTop = el.scrollHeight;
+}
+
+function _pollRun() {
+  if (!_runTaskId) return;
+  fetch(`/api/run/${_runTaskId}?from=${_runLogFrom}`)
+  .then(r => r.json())
+  .then(d => {
+    if (d.lines && d.lines.length) {
+      _appendLog(d.lines);
+      _runLogFrom = d.total_lines;
+    }
+    if (d.status !== 'running') {
+      clearInterval(_runPollTimer);
+      _runPollTimer = null;
+
+      const btn = document.getElementById('run-btn');
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Executar';
+
+      const res = document.getElementById('run-result');
+      res.classList.remove('d-none');
+      if (d.status === 'done') {
+        res.innerHTML = '<span class="text-success fw-semibold">'
+          + '<i class="bi bi-check-circle-fill me-1"></i>Concluído!</span>';
+        document.getElementById('run-refresh-btn').classList.remove('d-none');
+      } else {
+        _showRunError(d.error || 'Erro desconhecido');
+      }
+    }
+  })
+  .catch(e => { /* ignora erros de rede transitórios */ });
+}
+
+function _showRunError(msg) {
+  const btn = document.getElementById('run-btn');
+  btn.disabled  = false;
+  btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Executar';
+  const res = document.getElementById('run-result');
+  res.classList.remove('d-none');
+  res.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>${msg}</span>`;
+}
+</script>
+
 </body>
 </html>
