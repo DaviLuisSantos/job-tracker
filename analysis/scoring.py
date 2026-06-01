@@ -135,6 +135,8 @@ def calculate_fit_score(
     job: dict,
     positive_signals: list[str],
     negative_signals: list[str],
+    disqualify_signals: list[str] | None = None,
+    disqualify_max_score: int = 60,
     entry_level_boost: bool = False,
     visa_required: bool = False,
     no_sponsor_max: int = 72,
@@ -149,7 +151,11 @@ def calculate_fit_score(
     Penalidades universais (independem do perfil):
       • "no sponsorship" / "not sponsored"  → sponsor boost não dispara
       • "Australian Citizenship" / "AU Citizen" / "Citizens Only"
-        / NV1/NV2 clearance → −25 (hard disqualifier para quem precisa de visto)
+        / NV1/NV2 clearance → retorna 0 (hard disqualifier)
+
+    disqualify_signals: sinais que limitam o score a disqualify_max_score (padrão 60)
+      independente de quantos positivos a vaga tiver. Usado para requisitos de
+      qualificação formal que o candidato ainda não tem (trade cert, licença, etc.).
     """
     title_text = (job.get("title") or "").lower()
     body_text  = " ".join([
@@ -232,5 +238,15 @@ def calculate_fit_score(
     if visa_required:
         if not _sponsor_confirmed:
             score = min(score, no_sponsor_max)
+
+    # ── Disqualify: requisito de qualificação formal que o candidato não tem ──
+    # Aplica APÓS todos os cálculos — garante que vagas com boas condições
+    # (FIFO, 482, Karratha) mas que exigem trade cert fiquem visíveis mas
+    # abaixo do threshold de alerta.
+    if disqualify_signals:
+        for signal in disqualify_signals:
+            if _compile_signal(signal).search(full_text):
+                score = min(score, disqualify_max_score)
+                break
 
     return max(0, min(100, score))

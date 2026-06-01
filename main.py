@@ -112,7 +112,8 @@ def rescore_all(profile: str | None = None):
             job,
             cfg["positive_signals"],
             cfg["negative_signals"],
-            cfg.get("entry_level_boost", False),
+            cfg.get("disqualify_signals", []),
+            entry_level_boost=cfg.get("entry_level_boost", False),
             visa_required=SCRAPER_CONFIG.get("visa_required", False),
             no_sponsor_max=SCRAPER_CONFIG.get("no_sponsor_max_score", 72),
         )

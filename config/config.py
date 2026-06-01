@@ -6,33 +6,35 @@
 PROFILES = {
 
     # --------------------------------------------------
-    # TECH — todos os níveis (pleno, sênior e entrada)
+    # TECH — junior e graduate apenas
     # --------------------------------------------------
     "tech": {
-        "entry_level_boost": False,
+        "entry_level_boost": True,
         "keywords": [
-            # Azure / Integration (maior densidade de alto fit confirmada)
-            "Azure Integration Engineer",
-            "Azure Integration Developer",
-            "Azure Integration Technical Lead",
-            "Azure .NET Developer",
-            "Azure DevOps Engineer",
-            # .NET / C# (stack principal)
-            "Senior .NET Developer",
+            # Junior / Graduate .NET e C#
+            "Junior .NET Developer",
+            "Junior C# Developer",
+            "Graduate .NET Developer",
+            "Graduate Software Developer",
+            "Associate .NET Developer",
+            "Junior Software Developer",
+            # Junior Full Stack / React / Node
+            "Junior Full Stack Developer",
+            "Junior Node.js Developer",
+            "Junior Backend Developer",
+            "Software Developer React Node",
+            "Associate Software Developer",
+            # Junior Azure / DevOps / Support
+            "Junior Azure Developer",
+            "Junior DevOps Engineer",
+            "Junior Integration Engineer",
+            "Support Engineer",
+            "QA Automation Engineer",
+            # Mid-level (monitorar — mercado transitório)
             "Mid Level .NET Developer",
             ".NET Developer",
             "C# Developer",
             "Full Stack C# Developer",
-            # Full Stack / React / Node
-            "Full Stack Developer .NET",
-            "Senior Full Stack Developer",
-            "Senior Node.js Developer",
-            "Senior Backend Developer",
-            # Entrada realista (score 71-79 confirmado)
-            "Junior Software Developer",
-            "Graduate Developer",
-            "Associate Software Developer",
-            "Software Developer React Node",
             # Nicho Defence/Government Adelaide (menor competição)
             "Integration Engineer Adelaide",
             "Software Engineer Defence",
@@ -52,16 +54,26 @@ PROFILES = {
             "C#", ".NET", "Node.js", "React", "TypeScript",
             "Azure", "REST API", "microservices", "SQL Server",
             "integration", "Azure Service Bus", "Logic Apps",
-            "senior", "lead", "principal", "architect",
-            "remote", "hybrid", "visa sponsorship", "sponsorship",
-            "482", "employer sponsored", "relocation",
-            "mid-level", "mid level", "2 years", "3 years",
+            "junior", "graduate", "associate", "entry level",
+            "remote", "hybrid", "482", "employer sponsored", "relocation",
+            "mid-level", "mid level",
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
             "australian citizenship", "permanent resident",
-            "AWS only", "10+ years", "NV1", "NV2",
+            "AWS only", "NV1", "NV2",
             "security clearance required", "Australian citizenship required",
+            # Cargos seniores — descartam candidato júnior
+            "senior developer", "senior engineer", "senior consultant",
+            "tech lead", "lead developer", "principal engineer",
+            "solution architect", "enterprise architect", "staff engineer",
+            # Experiência excessiva
+            "10+ years", "8+ years", "7+ years", "6+ years", "5+ years",
+            "demonstrated experience", "extensive experience",
+            # Setores irrelevantes
+            "stylist", "salon", "hairdresser", "beauty therapist",
+            "hospitality", "barista", "chef", "nurse", "nursing",
+            "real estate", "insurance", "financial planner",
         ],
     },
 
@@ -76,22 +88,18 @@ PROFILES = {
             "Trade Assistant Plumber",
             "Trade Assistant Carpenter",
             "Trade Assistant Welder",
+            "Trade Assistant HVAC",
             # Aprendizes gerais
             "Apprentice Electrician",
             "Apprentice Plumber",
             "Apprentice Carpenter",
             "Apprentice Mechanic",
             # HVAC-R entrada (Plano B — fase apprentice)
+            "Apprentice Refrigeration Mechanic",
             "Air Conditioning Mechanic Apprentice",
             "Refrigeration Apprentice",
             "HVAC Offsider",
             "Offsider HVAC",
-            # HVAC-R qualificado (monitorar mercado futuro)
-            "Refrigeration Mechanic",
-            "HVAC Technician",
-            "Air Conditioning Refrigeration Mechanic",
-            # Dual trade (meta pós-TAFE)
-            "Dual Trade Electrician Refrigeration",
         ],
         "locations": [
             "All Australia",
@@ -101,7 +109,7 @@ PROFILES = {
             "Darwin NT",
         ],
         "positive_signals": [
-            "sponsorship", "visa", "482", "491", "relocation",
+            "482", "491", "employer sponsored", "relocation",
             "accommodation", "tool allowance",
             "apprenticeship", "traineeship",
             "no experience", "will train", "training provided",
@@ -109,12 +117,29 @@ PROFILES = {
             "white card", "basic tools", "offsider",
             "refrigeration", "HVAC", "air conditioning", "TAFE",
             "RAC", "cert II refrigeration",
-            "dual trade", "split system",
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
             "australian citizenship", "permanent resident",
-            "5+ years", "3+ years",
+            "5+ years", "3+ years", "2+ years",
+            # Cargos seniores ou de liderança
+            "leading hand", "supervisory", "senior technician",
+            "senior mechanic", "senior refrigeration",
+            # Vagas que exigem qualificação formal
+            "trade qualification", "trade qualified", "trade-qualified", "trade cert",
+            "cert III", "cert iv", "certificate III", "certificate iv",
+            "welding tickets", "pressure welding", "welding certifications",
+            "lead welder", "boilermaker", "coded welder", "coded pipe",
+            "qualified tradesperson", "qualified trade", "qualified fitter",
+            "refrigeration mechanic", "hvac technician",
+            "maintenance fitter", "qualified electrician",
+            "demonstrated experience", "proven experience",
+        ],
+        "disqualify_signals": [
+            "trade qualified", "trade-qualified", "trade qualification",
+            "cert III", "certificate III", "cert iv", "certificate iv",
+            "qualified tradesperson", "qualified fitter",
+            "refrigeration mechanic", "hvac technician", "qualified electrician",
         ],
     },
 
@@ -127,12 +152,11 @@ PROFILES = {
             "Construction Labourer",
             "Site Labourer",
             "Trades Assistant Construction",
-            "Concreter",
             "Offsider",
             "Construction Assistant",
             "Formwork Labourer",
             "Construction Labourer Regional",
-            # Driller Offsider (apareceu score 93-100, entrada real)
+            # Driller Offsider (score 93-100, entrada real)
             "Driller Offsider",
             "Drillers Assistant",
         ],
@@ -145,7 +169,7 @@ PROFILES = {
             "Darwin NT",
         ],
         "positive_signals": [
-            "sponsorship", "visa", "relocation",
+            "482", "491", "employer sponsored", "relocation",
             "no experience", "will train", "training provided",
             "entry level", "school leaver", "white card",
             "PPE provided", "immediate start", "labour hire",
@@ -155,13 +179,28 @@ PROFILES = {
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
             "australian citizenship", "permanent resident",
-            "site manager", "foreman", "supervisor",
-            "5+ years", "3+ years", "degree required",
+            "site manager", "foreman", "supervisor", "leading hand",
+            "5+ years", "3+ years", "2+ years", "degree required",
+            # Licenças e certificações que requerem treinamento formal
+            "crane operator", "dogman", "rigger", "rigging ticket",
+            "high risk licence", "high risk license",
+            "licensed plumber", "licensed electrician", "licensed builder",
+            "lead welder", "boilermaker", "welding tickets", "pressure welding",
+            "maintenance fitter", "qualified fitter",
+            "cert III", "cert iv", "certificate III", "certificate iv",
+            "trade-qualified", "trade qualification", "trade qualified",
+            "demonstrated experience", "proven experience",
+        ],
+        "disqualify_signals": [
+            "trade qualified", "trade-qualified", "trade qualification",
+            "cert III", "certificate III", "cert iv", "certificate iv",
+            "qualified tradesperson", "qualified fitter", "qualified builder",
+            "licensed plumber", "licensed electrician", "licensed builder",
         ],
     },
 
     # --------------------------------------------------
-    # FIFO — entrada, HVAC-R, E&I e sponsorship
+    # FIFO — entrada e aprendiz em mineração
     # --------------------------------------------------
     "fifo": {
         "entry_level_boost": True,
@@ -174,30 +213,21 @@ PROFILES = {
             "Kitchen Hand FIFO",
             "FIFO Utility",
             "FIFO Cleaner",
-            # Drillers Offsider (score 99-100, $116k-140k, confirmado)
+            # Plant / Equipment Operator entrada
+            "FIFO Plant Operator",
+            "FIFO Equipment Operator",
+            "Mine Site Plant Operator",
+            "Equipment Operator Mining Entry",
+            # Drillers Offsider ($116k-140k, entrada confirmada)
             "Drillers Offsider FIFO",
             "FIFO Drillers Assistant",
             "Entry Level Mining",
+            "Mine Site Labourer",
             # Aprendizes FIFO
-            "FIFO Apprentice Electrician",
             "FIFO Apprentice Mechanic",
             "Mining Apprentice",
-            "Mine Site Labourer",
-            # HVAC-R FIFO (Plano B — meta principal)
-            "Refrigeration Mechanic FIFO",
-            "HVAC Technician FIFO",
-            "FIFO HVAC Refrigeration",
-            "Refrigeration Technician FIFO",
-            # E&I / Mecatrônica FIFO (nicho confirmado score 97-100)
-            "Instrumentation Technician FIFO",
-            "E&I Technician Mining",
-            "Electrical Instrumentation FIFO",
-            "E&I Process Technician",
-            "Control Systems Technician",
-            # Sponsorship (monitorar recorrência)
-            "Sponsored Electrician FIFO",
-            "482 Visa Sponsorship Trades",
-            "Employer Sponsored Visa Technician",
+            # Sponsorship específico para mining/construção (mais restrito que o anterior)
+            "482 Visa Sponsorship Mining",
         ],
         "locations": [
             "All Australia",
@@ -210,21 +240,46 @@ PROFILES = {
             "FIFO", "fly-in fly-out", "DIDO", "relocation",
             "accommodation provided", "meals provided", "roster",
             "8:6", "2:1", "4:1", "20:8", "14:7",
-            "sponsorship", "visa", "482", "491",
-            "employer sponsored", "482 eligible", "491 eligible",
+            "482", "491", "employer sponsored", "482 eligible", "491 eligible",
             "no experience", "will train", "training provided",
             "entry level", "school leaver", "apprentice",
             "mining", "resources", "oil", "gas", "shutdown",
             "LNG", "Pilbara", "Karratha", "Kalgoorlie",
-            "refrigeration", "HVAC", "air conditioning",
-            "instrumentation", "E&I", "control systems",
-            "PLC", "SCADA", "loop check", "commissioning",
             "$116k", "$130k", "$140k",
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
             "australian citizenship", "permanent resident",
-            "residential only", "5+ years", "3+ years",
+            "residential only", "5+ years", "3+ years", "2+ years",
+            # Cargos seniores / fora do escopo
+            "superintendent", "project manager", "site manager",
+            "senior operator", "senior mechanic", "senior technician",
+            "shot firer", "explosives",
+            # Soldagem qualificada — não é escopo do perfil FIFO
+            "lead welder", "boilermaker", "welding tickets", "pressure welding",
+            "coded welder", "coded pipe",
+            "maintenance fitter", "qualified fitter",
+            "cert III", "cert iv", "certificate III", "certificate iv",
+            "trade-qualified", "trade qualification", "trade qualified",
+            # Qualificações formais fora do plano atual
+            "licensed electrician", "electrical licence", "electrical license",
+            "qualified boilermaker", "qualified welder",
+            "demonstrated experience", "proven experience",
+            # Setores irrelevantes que aparecem em buscas genéricas de sponsorship
+            "stylist", "salon", "hairdresser", "beauty therapist",
+            "hospitality", "barista", "chef", "restaurant",
+            "nurse", "nursing", "aged care", "disability support",
+            "real estate", "insurance", "financial planner",
+        ],
+        # Disqualificadores: limitam o score a 60 independente dos positivos.
+        # Usar para requisitos que tornam a vaga inaplicável no momento atual.
+        "disqualify_signals": [
+            "trade qualified", "trade-qualified", "trade qualification",
+            "relevant trade qualification",
+            "cert III", "certificate III", "cert iv", "certificate iv",
+            "qualified tradesperson", "qualified fitter",
+            "auto electrician", "diesel mechanic", "heavy vehicle mechanic",
+            "licensed electrician", "qualified boilermaker",
         ],
     },
 
@@ -244,7 +299,7 @@ SCRAPER_CONFIG = {
     # acima deste limiar buscam descrição completa para evitar falsos positivos
     # (requisitos de cidadania, years of experience etc. só aparecem no full desc)
     # Coloque None para desativar.
-    "auto_enrich_threshold":   82,
+    "auto_enrich_threshold":   65,
 
     # Scraping incremental: busca apenas vagas publicadas desde a última execução
     # False = sempre busca todas (útil para a primeira execução ou re-indexação)

@@ -129,6 +129,7 @@ async def _enrich_descriptions(
     jobs:            list[dict],
     positive:        list[str],
     negative:        list[str],
+    disqualify:      list[str],
     entry_boost:     bool,
     score_threshold: int | None = None,
 ):
@@ -161,7 +162,7 @@ async def _enrich_descriptions(
         visa_req  = SCRAPER_CONFIG.get("visa_required", False)
         no_sp_max = SCRAPER_CONFIG.get("no_sponsor_max_score", 72)
         new_score = calculate_fit_score(
-            {**job, "description": desc}, positive, negative, entry_boost,
+            {**job, "description": desc}, positive, negative, disqualify,
             visa_required=visa_req, no_sponsor_max=no_sp_max,
         )
         update_job_description(job["id"], desc, new_score)
@@ -442,6 +443,7 @@ async def _scrape_pair(
     profile_name: str,
     positive:     list[str],
     negative:     list[str],
+    disqualify:   list[str],
     entry_boost:  bool,
     date_range:   int | None = None,
 ) -> dict:
@@ -464,7 +466,7 @@ async def _scrape_pair(
             visa_req  = SCRAPER_CONFIG.get("visa_required", False)
             no_sp_max = SCRAPER_CONFIG.get("no_sponsor_max_score", 72)
             score     = calculate_fit_score(
-                job, positive, negative, entry_boost,
+                job, positive, negative, disqualify,
                 visa_required=visa_req, no_sponsor_max=no_sp_max,
             )
             job["fit_score"] = score
@@ -509,6 +511,7 @@ async def run_seek_scraper(
     locations     = profile["locations"]
     positive      = profile["positive_signals"]
     negative      = profile["negative_signals"]
+    disqualify    = profile.get("disqualify_signals", [])
     entry_boost   = profile.get("entry_level_boost", False)
     concurrency   = SCRAPER_CONFIG.get("max_concurrent_searches", 15)
     fetch_desc    = SCRAPER_CONFIG.get("fetch_descriptions", False)
@@ -539,7 +542,7 @@ async def run_seek_scraper(
     async with httpx.AsyncClient(timeout=30) as client:
         # ── Fase 1: listagem ──────────────────────────────────────
         tasks   = [
-            _scrape_pair(client, _sem, kw, loc, profile_name, positive, negative, entry_boost, date_range)
+            _scrape_pair(client, _sem, kw, loc, profile_name, positive, negative, disqualify, entry_boost, date_range)
             for kw, loc in pairs
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -553,7 +556,7 @@ async def run_seek_scraper(
         # ── Fase 2a: descrições completas (modo --full-desc) ──────
         if fetch_desc and all_new_jobs:
             console.print(f"\n  [dim]Buscando descrições completas para {len(all_new_jobs)} vagas novas...[/dim]")
-            await _enrich_descriptions(client, all_new_jobs, positive, negative, entry_boost)
+            await _enrich_descriptions(client, all_new_jobs, positive, negative, disqualify, entry_boost)
 
         # ── Fase 2b: auto-validação de scores muito altos ─────────
         # Jobs com score >= auto_enrich_threshold buscam descrição completa
@@ -567,7 +570,7 @@ async def run_seek_scraper(
                     console.print(
                         f"\n  [dim]Auto-validando {len(to_validate)} vagas com score ≥ {auto_threshold}...[/dim]"
                     )
-                    await _enrich_descriptions(client, to_validate, positive, negative, entry_boost)
+                    await _enrich_descriptions(client, to_validate, positive, negative, disqualify, entry_boost)
 
     total_found = sum(r["found"] for r in results if isinstance(r, dict))
     total_new   = sum(r["new"]   for r in results if isinstance(r, dict))
@@ -624,13 +627,14 @@ async def enrich_stored_jobs(profile: str | None = None, min_score: int = 0):
 
     async with httpx.AsyncClient(timeout=45) as client:
         for prof_name, group in by_profile.items():
-            cfg      = PROFILES.get(prof_name, {})
-            positive = cfg.get("positive_signals", [])
-            negative = cfg.get("negative_signals", [])
-            boost    = cfg.get("entry_level_boost", False)
+            cfg        = PROFILES.get(prof_name, {})
+            positive   = cfg.get("positive_signals", [])
+            negative   = cfg.get("negative_signals", [])
+            disqualify = cfg.get("disqualify_signals", [])
+            boost      = cfg.get("entry_level_boost", False)
             console.print(f"\n  [bold][{prof_name}][/bold] {len(group)} vagas")
             await _enrich_descriptions(
-                client, group, positive, negative, boost,
+                client, group, positive, negative, disqualify, boost,
                 score_threshold=score_floor,
             )
 
