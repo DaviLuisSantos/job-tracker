@@ -24,7 +24,7 @@ import time
 from rich.console import Console
 
 from config.config import GEMINI_API_KEY, PROFILES, SCRAPER_CONFIG
-from db.database import fetch_all_jobs, update_job_ai_data
+from db.database import fetch_all_jobs, batch_update_ai_data
 
 console = Console()
 
@@ -155,6 +155,8 @@ def enrich_with_ai(
     )
 
     updated = changed = errors = 0
+    # Acumula (ai_visa_stance, ai_seniority, new_score, job_id) para flush em batch
+    pending_updates: list[tuple] = []
 
     for i, job in enumerate(targets, 1):
         title = (job.get("title") or "")[:70]
@@ -176,12 +178,12 @@ def enrich_with_ai(
         old_score = job.get("fit_score") or 0
         new_score = _adjusted_score(old_score, ai, cfg)
 
-        update_job_ai_data(
-            job_id        = job["id"],
-            ai_visa_stance= ai.get("visa_stance", "neutral"),
-            ai_seniority  = ai.get("seniority", "any"),
-            new_score     = new_score,
-        )
+        pending_updates.append((
+            ai.get("visa_stance", "neutral"),
+            ai.get("seniority", "any"),
+            new_score,
+            job["id"],
+        ))
 
         delta = new_score - old_score
         if delta != 0:
@@ -203,7 +205,10 @@ def enrich_with_ai(
 
         # Respeita rate limit: 15 req/min → 1 a cada 4s (com margem)
         if i < len(targets):
-            time.sleep(4.5)
+            time.sleep(4.0)
+
+    # Persiste todos os resultados em uma única transação — O(1) conexão
+    batch_update_ai_data(pending_updates)
 
     console.print(
         f"\n[bold green]Concluído.[/bold green] "

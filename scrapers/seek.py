@@ -10,9 +10,10 @@ from config.config import SCRAPER_CONFIG
 from analysis.scoring import calculate_fit_score
 from analysis.salary import parse_salary
 from db.database import (
-    insert_job, add_profile_to_job, job_exists, log_run,
+    add_profile_to_job, job_exists, log_run,
     update_job_description, update_job_salary, get_last_run_time,
-    batch_job_exists, fetch_all_jobs,
+    batch_job_exists, batch_insert_jobs, batch_add_profile_to_jobs,
+    fetch_all_jobs,
 )
 
 console = Console()
@@ -452,37 +453,48 @@ async def _scrape_pair(
     async with sem:
         raw_jobs = await _scrape_keyword(client, keyword, location, date_range)
 
-    new_count        = 0
-    new_jobs         = []   # vagas novas (para enriquecimento posterior)
-    auto_threshold   = SCRAPER_CONFIG.get("auto_enrich_threshold", 82)
+    auto_threshold = SCRAPER_CONFIG.get("auto_enrich_threshold", 82)
+    visa_req       = SCRAPER_CONFIG.get("visa_required", False)
+    no_sp_max      = SCRAPER_CONFIG.get("no_sponsor_max_score", 72)
 
+    # Mapeamento e separação em uma única query — O(1) vs O(n) conexões
+    mapped_jobs  = []
     for raw in raw_jobs:
         job            = _map_job(raw)
         job["profile"] = profile_name
+        mapped_jobs.append(job)
 
-        inserted = insert_job({**job, "fit_score": 0})  # inserção provisória
+    existing_ids = batch_job_exists([j["id"] for j in mapped_jobs])
 
-        if inserted:
-            visa_req  = SCRAPER_CONFIG.get("visa_required", False)
-            no_sp_max = SCRAPER_CONFIG.get("no_sponsor_max_score", 72)
-            score     = calculate_fit_score(
+    to_insert    : list[dict] = []
+    existing_list: list[str]  = []
+
+    for job in mapped_jobs:
+        if job["id"] not in existing_ids:
+            score          = calculate_fit_score(
                 job, positive, negative, disqualify,
                 visa_required=visa_req, no_sponsor_max=no_sp_max,
             )
             job["fit_score"] = score
-            update_job_description(job["id"], job.get("description") or "", score)
-            new_count += 1
-            new_jobs.append(job)
+            to_insert.append(job)
 
             if score >= 70:
                 label = f"{(job['title'] or '')[:40]} @ {(job['company'] or '')[:25]}"
                 console.print(f"  [green]+ {label} — score: {score}[/green]")
 
-            # Marca para auto-enrich se score muito alto (falso positivo potencial)
             if auto_threshold and score >= auto_threshold:
                 job["_needs_validation"] = True
         else:
-            add_profile_to_job(job["id"], profile_name)
+            existing_list.append(job["id"])
+
+    # Inserção em batch — uma única transação independente do tamanho do lote
+    inserted_ids = batch_insert_jobs(to_insert)
+    new_jobs     = [j for j in to_insert if j["id"] in inserted_ids]
+    new_count    = len(new_jobs)
+
+    # Atualiza perfis de vagas já existentes — uma única transação
+    if existing_list:
+        batch_add_profile_to_jobs(existing_list, profile_name)
 
     log_run("seek", profile_name, keyword, len(raw_jobs), new_count)
 

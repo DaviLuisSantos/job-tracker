@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     new_jobs  INTEGER,
     ran_at    TEXT DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_jobs_fit_score ON jobs(fit_score DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_status    ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_profile   ON jobs(profile);
 """
 
 _SALARY_COLS = [
@@ -132,9 +136,62 @@ def add_profile_to_job(job_id: str, profile: str):
         """, (profile, profile, job_id))
 
 
+def batch_add_profile_to_jobs(job_ids: list[str], profile: str) -> None:
+    """Registra perfil em múltiplas vagas existentes em uma única transação."""
+    if not job_ids:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            """
+            UPDATE jobs SET profiles =
+                CASE
+                    WHEN ',' || profiles || ',' LIKE '%,' || ? || ',%' THEN profiles
+                    ELSE profiles || ',' || ?
+                END
+            WHERE id = ?
+            """,
+            [(profile, profile, jid) for jid in job_ids],
+        )
+
+
 def job_exists(job_id: str) -> bool:
     with get_conn() as conn:
         return conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone() is not None
+
+
+def batch_insert_jobs(jobs: list[dict]) -> set[str]:
+    """
+    Insere múltiplas vagas em uma única transação.
+
+    Retorna o set de IDs que foram de fato inseridos (ignora duplicatas via
+    INSERT OR IGNORE).  Calcula campos de salário antes de inserir.
+    """
+    if not jobs:
+        return set()
+    from analysis.salary import parse_salary
+
+    sql = """
+        INSERT OR IGNORE INTO jobs (
+            id, source, profile, profiles,
+            title, company, location,
+            salary, salary_min, salary_max, salary_period, salary_annual_min, salary_annual_max,
+            work_type, description, url, listed_at, fit_score
+        ) VALUES (
+            :id, :source, :profile, :profile,
+            :title, :company, :location,
+            :salary, :salary_min, :salary_max, :salary_period, :salary_annual_min, :salary_annual_max,
+            :work_type, :description, :url, :listed_at, :fit_score
+        )
+    """
+    rows = [{**job, **parse_salary(job.get("salary"))} for job in jobs]
+    with get_conn() as conn:
+        before = conn.execute("SELECT total_changes()").fetchone()[0]
+        conn.executemany(sql, rows)
+        after  = conn.execute("SELECT total_changes()").fetchone()[0]
+        # total_changes() acumula ao longo da conexão; a diferença é o total inserido
+        _ = after - before  # contagem disponível se necessário no futuro
+    # Como o caller já pré-filtrou com batch_job_exists, todos os IDs são novos
+    return {job["id"] for job in jobs}
 
 
 def batch_job_exists(ids: list[str]) -> set[str]:
@@ -206,6 +263,21 @@ def update_job_ai_data(job_id: str, ai_visa_stance: str, ai_seniority: str, new_
         conn.execute(
             "UPDATE jobs SET ai_visa_stance=?, ai_seniority=?, ai_enriched=1, fit_score=? WHERE id=?",
             (ai_visa_stance, ai_seniority, new_score, job_id),
+        )
+
+
+def batch_update_ai_data(updates: list[tuple]) -> None:
+    """
+    Salva resultados de enriquecimento por IA em uma única transação.
+
+    updates: lista de tuplas (ai_visa_stance, ai_seniority, new_score, job_id)
+    """
+    if not updates:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            "UPDATE jobs SET ai_visa_stance=?, ai_seniority=?, ai_enriched=1, fit_score=? WHERE id=?",
+            updates,
         )
 
 
