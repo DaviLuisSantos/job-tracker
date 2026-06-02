@@ -134,6 +134,7 @@
             <small class="text-muted" id="m-company-loc"></small>
           </div>
           <span id="m-profile" class="badge bg-dark ms-1"></span>
+          <span id="m-ai-badge" class="d-none ms-1"></span>
         </div>
         <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
       </div>
@@ -166,6 +167,29 @@
         <!-- Descrição -->
         <h6 class="text-muted small text-uppercase fw-bold mb-1">Descrição</h6>
         <div id="m-description" class="desc-box mb-3"></div>
+
+        <!-- Score breakdown -->
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <h6 class="text-muted small text-uppercase fw-bold mb-0">Detalhamento do score</h6>
+          <button id="explain-btn" class="btn btn-outline-secondary btn-sm py-0 px-2 lh-1"
+                  onclick="loadExplain()">
+            <i class="bi bi-info-circle me-1"></i>Carregar
+          </button>
+        </div>
+        <div id="explain-box" class="d-none mb-3">
+          <table class="table table-sm mb-0" style="font-size:.82rem">
+            <thead class="table-light">
+              <tr><th>Tipo</th><th>Sinal</th><th>Onde</th><th class="text-end">Pts</th></tr>
+            </thead>
+            <tbody id="explain-rows"></tbody>
+            <tfoot>
+              <tr class="fw-bold table-light">
+                <td colspan="3">Score final</td>
+                <td class="text-end" id="explain-final"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
         <!-- Anotações -->
         <h6 class="text-muted small text-uppercase fw-bold mb-1">Anotações</h6>
@@ -249,6 +273,19 @@ function openJob(jobId) {
   document.getElementById('m-company-loc').textContent = [j.company, j.location].filter(Boolean).join(' · ') || '—';
   document.getElementById('m-profile').textContent    = j.profile    || '—';
   document.getElementById('m-link').href              = j.url        || '#';
+
+  // Badge de análise por IA
+  const aiBadge = document.getElementById('m-ai-badge');
+  if (j.ai_enriched) {
+    const visaIcon = j.ai_visa_stance === 'positive' ? '✅' :
+                     j.ai_visa_stance === 'negative' ? '🚫' : '❔';
+    aiBadge.innerHTML =
+      `<span class="badge bg-secondary" title="Analisado por Gemini">` +
+      `🤖 visa ${visaIcon} · ${j.ai_seniority || '?'}</span>`;
+    aiBadge.classList.remove('d-none');
+  } else {
+    aiBadge.classList.add('d-none');
+  }
   document.getElementById('m-worktype').textContent   = j.work_type  || '—';
   document.getElementById('m-listed').textContent     = (j.listed_at || '').slice(0, 10);
   document.getElementById('m-notes').value            = j.notes      || '';
@@ -305,6 +342,67 @@ function setStatus(status) {
     sb.className   = 'badge st-' + status;
     sb.textContent = status;
   });
+}
+
+// ── Explicar score ─────────────────────────────────────────
+function loadExplain() {
+  if (!currentJobId) return;
+  const btn = document.getElementById('explain-btn');
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  btn.disabled  = true;
+
+  fetch(`/api/job/${currentJobId}/explain`)
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { btn.innerHTML = d.error; return; }
+
+    const typeLabel = {
+      pos:        '<span class="badge bg-success">+pos</span>',
+      neg:        '<span class="badge bg-danger">−neg</span>',
+      sponsor:    '<span class="badge bg-info text-dark">visto</span>',
+      sponsor_neg:'<span class="badge bg-secondary">visto✗</span>',
+      bonus:      '<span class="badge bg-primary">bônus</span>',
+      cap:        '<span class="badge bg-warning text-dark">cap</span>',
+      disqualify: '<span class="badge bg-dark">disq</span>',
+      ai:         '<span class="badge bg-purple" style="background:#6f42c1">🤖 IA</span>',
+    };
+
+    const rows = document.getElementById('explain-rows');
+    rows.innerHTML = `<tr class="text-muted">
+      <td colspan="3">Base</td><td class="text-end">+50</td></tr>`;
+
+    for (const item of d.items) {
+      const pts = item.pts > 0 ? `<span class="text-success">+${item.pts}</span>`
+                : item.pts < 0 ? `<span class="text-danger">${item.pts}</span>`
+                : '<span class="text-muted">—</span>';
+      rows.innerHTML += `<tr>
+        <td>${typeLabel[item.type] || item.type}</td>
+        <td>${item.signal}</td>
+        <td class="text-muted">${item.where}</td>
+        <td class="text-end">${pts}</td>
+      </tr>`;
+    }
+
+    const s = d.final;
+    const cls = s >= 80 ? 'text-success' : s >= 70 ? 'text-info' : s >= 50 ? 'text-warning' : 'text-danger';
+    document.getElementById('explain-final').innerHTML =
+      `<span class="${cls}">${s}</span>`;
+
+    document.getElementById('explain-box').classList.remove('d-none');
+    btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Atualizar';
+    btn.disabled  = false;
+  })
+  .catch(() => { btn.innerHTML = 'Erro'; btn.disabled = false; });
+}
+
+// Limpa explain ao abrir novo job
+const _origOpenJob = openJob;
+function openJob(jobId) {
+  _origOpenJob(jobId);
+  document.getElementById('explain-box').classList.add('d-none');
+  const btn = document.getElementById('explain-btn');
+  btn.innerHTML = '<i class="bi bi-info-circle me-1"></i>Carregar';
+  btn.disabled  = false;
 }
 
 // ── Salvar anotações ───────────────────────────────────────

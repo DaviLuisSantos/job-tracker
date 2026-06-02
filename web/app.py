@@ -24,15 +24,18 @@ from pathlib import Path
 # Garante que o root do projeto está no sys.path quando rodado diretamente
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 
-from config.config import PROFILES
+from config.config import PROFILES, SCRAPER_CONFIG
 from db.database import (
     fetch_all_jobs,
+    fetch_for_review,
     fetch_scrape_runs,
     update_job_notes,
     update_job_status,
 )
+from analysis.excel_report import export_excel
+from analysis.ai_export import export_for_ai
 
 app = Flask(__name__)
 
@@ -66,6 +69,10 @@ def _build_cmd(action: str, profile: str | None,
             cmd.append("--full-desc")
     elif action == "enrich":
         cmd.append("--enrich")
+        if min_score:
+            cmd += ["--min-score", str(min_score)]
+    elif action == "ai_enrich":
+        cmd.append("--ai-enrich")
         if min_score:
             cmd += ["--min-score", str(min_score)]
     elif action == "rescore":
@@ -244,7 +251,7 @@ def api_run_start():
     full_desc = bool(data.get("full_desc", False))
     min_score = int(data.get("min_score") or 0)
 
-    if action not in ("scrape", "enrich", "rescore"):
+    if action not in ("scrape", "enrich", "ai_enrich", "rescore"):
         return jsonify({"error": "ação inválida"}), 400
     if profile and profile not in PROFILES:
         return jsonify({"error": f"perfil '{profile}' não existe"}), 400
@@ -278,6 +285,175 @@ def api_run_status(task_id: str):
         "total_lines": from_idx + len(lines),
         "error":       error,
     })
+
+
+# ── Score explain ─────────────────────────────────────────────────────────────
+
+def _explain_score(job: dict) -> dict:
+    from analysis.scoring import (
+        _CITIZEN_REQUIRED_RE, _NEG_SPONSOR_RE, _POS_SPONSOR_SIGNALS,
+        _NO_EXPERIENCE_SIGNALS, _compile_signal, _match_signal,
+    )
+
+    cfg       = PROFILES.get(job.get("profile") or "", {})
+    title_txt = (job.get("title") or "").lower()
+    body_txt  = " ".join([
+        job.get("description") or "",
+        job.get("location")    or "",
+        job.get("work_type")   or "",
+    ]).lower()
+    full_txt  = f"{title_txt} {body_txt}"
+
+    if bool(_CITIZEN_REQUIRED_RE.search(full_txt)):
+        return {"base": 50, "items": [
+            {"type": "disqualify", "signal": "Cidadania/PR exigida", "where": "texto", "pts": -50}
+        ], "final": 0}
+
+    items = []
+    score = 50
+
+    for sig in cfg.get("positive_signals", []):
+        if _match_signal(sig, title_txt):
+            items.append({"type": "pos", "signal": sig, "where": "título", "pts": +16})
+            score += 16
+        elif _match_signal(sig, body_txt):
+            items.append({"type": "pos", "signal": sig, "where": "corpo",  "pts": +8})
+            score += 8
+
+    for sig in cfg.get("negative_signals", []):
+        sig_re = _compile_signal(sig)
+        if sig_re.search(title_txt):
+            items.append({"type": "neg", "signal": sig, "where": "título", "pts": -30})
+            score -= 30
+        elif sig_re.search(body_txt):
+            items.append({"type": "neg", "signal": sig, "where": "corpo",  "pts": -15})
+            score -= 15
+
+    neg_spon       = bool(_NEG_SPONSOR_RE.search(full_txt))
+    sponsor_boost  = "sponsor" in full_txt and not neg_spon
+    confirmed_spon = (not neg_spon) and any(s in full_txt for s in _POS_SPONSOR_SIGNALS)
+
+    if confirmed_spon:
+        items.append({"type": "sponsor", "signal": "Sponsorship confirmado", "where": "texto", "pts": +20})
+        score += 20
+    elif sponsor_boost:
+        items.append({"type": "sponsor", "signal": "Sponsorship mencionado", "where": "texto", "pts": +20})
+        score += 20
+    elif neg_spon:
+        items.append({"type": "sponsor_neg", "signal": "Sponsorship negado", "where": "texto", "pts": 0})
+
+    if _compile_signal("remote").search(full_txt):
+        items.append({"type": "bonus", "signal": "Remote", "where": "texto", "pts": +10})
+        score += 10
+    elif _compile_signal("hybrid").search(full_txt):
+        items.append({"type": "bonus", "signal": "Hybrid", "where": "texto", "pts": +5})
+        score += 5
+
+    fifo_in_profile = any("fifo" in s.lower() or "fly-in" in s.lower()
+                          for s in cfg.get("positive_signals", []))
+    if not fifo_in_profile and (
+        _compile_signal("fifo").search(full_txt) or
+        _compile_signal("fly-in fly-out").search(full_txt)
+    ):
+        items.append({"type": "bonus", "signal": "FIFO", "where": "texto", "pts": +15})
+        score += 15
+
+    if cfg.get("entry_level_boost", False):
+        for sig in _NO_EXPERIENCE_SIGNALS:
+            if _match_signal(sig, full_txt):
+                items.append({"type": "bonus", "signal": f"Entry level: {sig}", "where": "texto", "pts": +12})
+                score += 12
+
+    visa_req = SCRAPER_CONFIG.get("visa_required", False)
+    no_sp    = SCRAPER_CONFIG.get("no_sponsor_max_score", 72)
+    if visa_req and not confirmed_spon:
+        capped = min(score, no_sp)
+        if capped < score:
+            items.append({"type": "cap", "signal": f"Cap: sem sponsor confirmado (máx {no_sp})", "where": "—", "pts": capped - score})
+            score = capped
+
+    disq     = cfg.get("disqualify_signals", [])
+    disq_max = 60
+    for sig in disq:
+        if _compile_signal(sig).search(full_txt):
+            capped = min(score, disq_max)
+            if capped < score:
+                items.append({"type": "disqualify", "signal": f"Disqualify: {sig}", "where": "texto", "pts": capped - score})
+                score = capped
+            break
+
+    base_final = max(0, min(100, score))
+
+    # Ajuste da IA (se o job já foi enriquecido)
+    ai_visa   = job.get("ai_visa_stance") if job else None
+    ai_senior = job.get("ai_seniority")   if job else None
+    ai_enrich = bool(job.get("ai_enriched")) if job else False
+    stored_score = (job.get("fit_score") or 0) if job else base_final
+
+    if ai_enrich and ai_visa:
+        ai_delta = stored_score - base_final
+        if ai_delta != 0:
+            items.append({
+                "type":   "ai",
+                "signal": f"IA: visa={ai_visa}, seniority={ai_senior}",
+                "where":  "Gemini",
+                "pts":    ai_delta,
+            })
+
+    return {
+        "base": 50,
+        "items": items,
+        "final": stored_score if ai_enrich else base_final,
+        "ai_enriched": ai_enrich,
+        "ai_visa_stance": ai_visa,
+        "ai_seniority": ai_senior,
+    }
+
+
+@app.route("/api/job/<job_id>/explain")
+def api_explain(job_id: str):
+    all_jobs = fetch_all_jobs()
+    job = next((j for j in all_jobs if j["id"] == job_id), None)
+    if not job:
+        return jsonify({"error": "não encontrado"}), 404
+    return jsonify(_explain_score(job))
+
+
+# ── Export / Download ─────────────────────────────────────────────────────────
+
+@app.route("/api/export/excel")
+def api_export_excel():
+    profile = request.args.get("profile") or None
+    path = export_excel(profile)
+    if not path:
+        return jsonify({"error": "Nenhuma vaga elegível para exportar."}), 404
+    return send_file(str(path), as_attachment=True, download_name=path.name)
+
+
+@app.route("/api/export/ai")
+def api_export_ai():
+    profile   = request.args.get("profile") or None
+    min_score = int(request.args.get("min_score") or 0)
+    path = export_for_ai(profile, min_score=min_score)
+    if not path:
+        return jsonify({"error": "Nenhuma vaga para exportar."}), 404
+    return send_file(str(path), as_attachment=True, download_name=path.name)
+
+
+# ── Review page ───────────────────────────────────────────────────────────────
+
+@app.route("/review")
+def review_page():
+    profile   = request.args.get("profile", "")
+    min_score = int(request.args.get("min_score") or 0)
+    jobs = fetch_for_review(profile or None, min_score=min_score, limit=200)
+    return render_template("review.html",
+        jobs=jobs,
+        jobs_json=_safe_jobs_json(jobs),
+        profiles=list(PROFILES.keys()),
+        selected_profile=profile,
+        min_score=min_score,
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

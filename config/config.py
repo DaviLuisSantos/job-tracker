@@ -3,6 +3,12 @@
 #  Cada perfil tem keywords, locations e sinais próprios.
 # =====================================================
 
+import os
+
+# Chave da API do Google Gemini (https://aistudio.google.com/apikey)
+# Pode ser definida aqui ou via variável de ambiente GEMINI_API_KEY.
+GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
+
 PROFILES = {
 
     # --------------------------------------------------

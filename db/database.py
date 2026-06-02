@@ -78,6 +78,9 @@ def _migrate(conn):
         ("salary_period",    "TEXT"),
         ("salary_annual_min","INTEGER"),
         ("salary_annual_max","INTEGER"),
+        ("ai_visa_stance",   "TEXT"),
+        ("ai_seniority",     "TEXT"),
+        ("ai_enriched",      "INTEGER DEFAULT 0"),
     ]:
         if col not in existing:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {defn}")
@@ -195,6 +198,15 @@ def update_job_score(job_id: str, fit_score: int):
     """Atualiza apenas o fit_score (usado pelo --rescore)."""
     with get_conn() as conn:
         conn.execute("UPDATE jobs SET fit_score=? WHERE id=?", (fit_score, job_id))
+
+
+def update_job_ai_data(job_id: str, ai_visa_stance: str, ai_seniority: str, new_score: int):
+    """Salva resultado do enriquecimento por IA e ajusta o score."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET ai_visa_stance=?, ai_seniority=?, ai_enriched=1, fit_score=? WHERE id=?",
+            (ai_visa_stance, ai_seniority, new_score, job_id),
+        )
 
 
 # ── Scraping incremental ──────────────────────────────────────────────────────

@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+  .review-card { border-radius: 16px; transition: box-shadow .15s; }
+  .review-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.12) !important; }
+  .review-desc {
+    white-space: pre-wrap; font-size: .82rem; max-height: 220px;
+    overflow-y: auto; background: #f8f9fa; border-radius: 8px; padding: .75rem;
+    color: #495057;
+  }
+  .action-btn { min-width: 110px; }
+  .kbd-hint kbd {
+    background: #343a40; color: #fff; border-radius: 4px;
+    padding: 1px 6px; font-size: .75rem;
+  }
+  #note-area textarea { font-size: .85rem; }
+  .done-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    display: flex; align-items: center; justify-content: center; z-index: 2000;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Filtros ──────────────────────────────────────────────────────── -->
+<div class="card p-2 mb-3">
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-sm-3">
+      <label class="form-label small text-muted mb-1">Perfil</label>
+      <select name="profile" class="form-select form-select-sm">
+        <option value="">Todos os perfis</option>
+        {% for p in profiles %}
+        <option value="{{ p }}" {% if p == selected_profile %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-2">
+      <label class="form-label small text-muted mb-1">Score mínimo</label>
+      <input type="number" name="min_score" value="{{ min_score or '' }}"
+             class="form-control form-control-sm" placeholder="0" min="0" max="100">
+    </div>
+    <div class="col-sm-auto">
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-funnel-fill me-1"></i>Filtrar
+      </button>
+    </div>
+    <div class="col-sm-auto ms-auto">
+      <a href="/jobs" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-list-ul me-1"></i>Ver tabela
+      </a>
+    </div>
+  </form>
+</div>
+
+{% if not jobs %}
+<div class="card p-5 text-center text-muted">
+  <i class="bi bi-check2-all fs-1 mb-3 text-success"></i>
+  <h5>Nenhuma vaga nova para revisar</h5>
+  <p class="mb-3">Faça um scrape para trazer novas vagas ou reduza o score mínimo.</p>
+  <div>
+    <a href="/jobs" class="btn btn-outline-primary btn-sm me-2">Ver todas as vagas</a>
+    <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#runModal">
+      <i class="bi bi-play-circle-fill me-1"></i>Executar scrape
+    </button>
+  </div>
+</div>
+{% else %}
+
+<!-- ── Progresso ─────────────────────────────────────────────────────── -->
+<div class="d-flex align-items-center gap-3 mb-3">
+  <span id="progress-text" class="text-muted small text-nowrap"></span>
+  <div class="progress flex-grow-1" style="height:6px">
+    <div id="progress-bar" class="progress-bar bg-info" role="progressbar" style="width:0%"></div>
+  </div>
+  <a href="/jobs" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-x-lg"></i>
+  </a>
+</div>
+
+<!-- ── Card de vaga ──────────────────────────────────────────────────── -->
+<div id="review-card" class="card p-4 mb-3 review-card">
+  <div class="d-flex align-items-start gap-3 mb-3 flex-wrap">
+    <span id="rv-score" class="score-badge fs-5 flex-shrink-0"></span>
+    <div class="flex-grow-1">
+      <h5 id="rv-title" class="mb-0 fw-bold"></h5>
+      <div class="text-muted small mt-1" id="rv-meta"></div>
+    </div>
+    <span id="rv-profile" class="badge bg-dark align-self-start"></span>
+  </div>
+
+  <div class="row g-3 mb-3 small">
+    <div class="col-sm-4">
+      <span class="text-muted"><i class="bi bi-geo-alt me-1"></i></span>
+      <span id="rv-location">—</span>
+    </div>
+    <div class="col-sm-4">
+      <span class="text-muted"><i class="bi bi-cash me-1"></i></span>
+      <span id="rv-salary">—</span>
+    </div>
+    <div class="col-sm-4">
+      <span class="text-muted"><i class="bi bi-clock me-1"></i></span>
+      <span id="rv-worktype">—</span>
+    </div>
+    <div class="col-sm-4">
+      <span class="text-muted"><i class="bi bi-calendar me-1"></i></span>
+      <span id="rv-listed">—</span>
+    </div>
+    <div class="col-sm-8">
+      <span class="text-muted"><i class="bi bi-tag me-1"></i></span>
+      <span id="rv-status" class="badge"></span>
+    </div>
+  </div>
+
+  <h6 class="text-muted small text-uppercase fw-bold mb-1">Descrição</h6>
+  <div id="rv-desc" class="review-desc mb-3">Sem descrição.</div>
+
+  <div class="d-flex gap-2">
+    <a id="rv-link" href="#" target="_blank" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-box-arrow-up-right me-1"></i>Abrir vaga
+    </a>
+  </div>
+</div>
+
+<!-- ── Área de nota ──────────────────────────────────────────────────── -->
+<div id="note-area" class="card p-3 mb-3 d-none">
+  <label class="form-label small fw-semibold mb-1"><i class="bi bi-pencil me-1"></i>Anotação</label>
+  <textarea id="rv-note" class="form-control form-control-sm mb-2" rows="2"
+            placeholder="Sua nota sobre esta vaga…"></textarea>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-secondary" onclick="saveNote()">
+      <i class="bi bi-save me-1"></i>Salvar nota
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="toggleNote()">Cancelar</button>
+  </div>
+</div>
+
+<!-- ── Botões de ação ─────────────────────────────────────────────────── -->
+<div class="d-flex justify-content-center gap-2 flex-wrap mb-3">
+  <button class="btn btn-outline-secondary action-btn" onclick="goBack()" id="btn-back" disabled>
+    <i class="bi bi-arrow-left me-1"></i>Voltar
+  </button>
+  <button class="btn btn-outline-danger action-btn" onclick="doAction('rejected')">
+    <i class="bi bi-x-circle me-1"></i>Rejeitar
+  </button>
+  <button class="btn btn-outline-secondary action-btn" onclick="doAction('skip')">
+    <i class="bi bi-skip-forward me-1"></i>Pular
+  </button>
+  <button class="btn btn-outline-info action-btn" onclick="doAction('reviewed')">
+    <i class="bi bi-check me-1"></i>Revisada
+  </button>
+  <button class="btn btn-warning action-btn" onclick="toggleNote()">
+    <i class="bi bi-pencil me-1"></i>Nota
+  </button>
+  <button class="btn btn-success action-btn" onclick="doAction('applied')">
+    <i class="bi bi-send-fill me-1"></i>Candidatei
+  </button>
+</div>
+
+<!-- ── Atalhos de teclado ─────────────────────────────────────────────── -->
+<div class="text-center kbd-hint text-muted small mb-4">
+  <kbd>A</kbd> Candidatei &nbsp;·&nbsp;
+  <kbd>R</kbd> Revisada &nbsp;·&nbsp;
+  <kbd>D</kbd> Rejeitar &nbsp;·&nbsp;
+  <kbd>S</kbd> Pular &nbsp;·&nbsp;
+  <kbd>N</kbd> Nota &nbsp;·&nbsp;
+  <kbd>B</kbd> Voltar &nbsp;·&nbsp;
+  <kbd>Q</kbd> Sair
+</div>
+
+{% endif %}
+
+<!-- ── Overlay: revisão concluída ─────────────────────────────────────── -->
+<div id="done-overlay" class="done-overlay d-none">
+  <div class="card p-5 text-center" style="max-width:420px">
+    <i class="bi bi-check2-circle text-success fs-1 mb-3"></i>
+    <h4 class="fw-bold mb-2">Revisão concluída!</h4>
+    <p id="done-summary" class="text-muted mb-4"></p>
+    <div class="d-flex gap-2 justify-content-center flex-wrap">
+      <button class="btn btn-outline-secondary" onclick="location.reload()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Recomeçar
+      </button>
+      <a href="/jobs" class="btn btn-primary">
+        <i class="bi bi-list-ul me-1"></i>Ver vagas
+      </a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+const JOBS    = {{ jobs_json | safe }};
+let idx       = 0;
+let applied   = 0;
+let reviewed  = 0;
+let rejected  = 0;
+let history   = [];   // [{jobId, prevStatus}] for back navigation
+
+function fmtSalary(j) {
+  if (j.salary_annual_min) {
+    const lo = Number(j.salary_annual_min).toLocaleString('en-AU');
+    const hi = (j.salary_annual_max && j.salary_annual_max !== j.salary_annual_min)
+               ? Number(j.salary_annual_max).toLocaleString('en-AU') : null;
+    return hi ? `$${lo} – $${hi} /ano` : `$${lo} /ano`;
+  }
+  return j.salary || '—';
+}
+
+function renderJob() {
+  if (idx >= JOBS.length) { showDone(); return; }
+
+  const j     = JOBS[idx];
+  const score = parseInt(j.fit_score) || 0;
+  const st    = j.status || 'new';
+
+  document.getElementById('rv-score').textContent  = score;
+  document.getElementById('rv-score').className    = 'score-badge fs-5 flex-shrink-0 ' + scoreClass(score);
+  document.getElementById('rv-title').textContent  = j.title    || '—';
+  document.getElementById('rv-meta').textContent   = [j.company, j.location].filter(Boolean).join(' · ') || '—';
+  document.getElementById('rv-profile').textContent = j.profile  || '—';
+  document.getElementById('rv-location').textContent = j.location || '—';
+  document.getElementById('rv-salary').textContent   = fmtSalary(j);
+  document.getElementById('rv-worktype').textContent  = j.work_type || '—';
+  document.getElementById('rv-listed').textContent    = (j.listed_at || '').slice(0, 10) || '—';
+  document.getElementById('rv-link').href             = j.url || '#';
+
+  const sb = document.getElementById('rv-status');
+  sb.textContent = st;
+  sb.className   = 'badge st-' + st;
+
+  const raw = j.description || 'Sem descrição disponível.';
+  document.getElementById('rv-desc').textContent = raw.replace(/ \| /g, '\n');
+
+  // Restaura nota se houver
+  document.getElementById('rv-note').value = j.notes || '';
+
+  // Oculta nota ao trocar de vaga
+  document.getElementById('note-area').classList.add('d-none');
+
+  // Botão voltar
+  document.getElementById('btn-back').disabled = (history.length === 0);
+
+  updateProgress();
+}
+
+function updateProgress() {
+  const total   = JOBS.length;
+  const done    = idx;
+  const pct     = total ? Math.round(done / total * 100) : 0;
+  document.getElementById('progress-text').textContent = `${done} / ${total} vagas`;
+  document.getElementById('progress-bar').style.width  = pct + '%';
+}
+
+function doAction(action) {
+  if (idx >= JOBS.length) return;
+  const j = JOBS[idx];
+
+  history.push({ jobId: j.id, prevStatus: j.status });
+
+  if (action === 'skip') {
+    idx++;
+    renderJob();
+    return;
+  }
+
+  const applied_flag = action === 'applied';
+  fetch(`/api/job/${j.id}/status`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ status: action }),
+  });
+
+  j.status = action;
+  if (action === 'applied')  applied++;
+  if (action === 'reviewed') reviewed++;
+  if (action === 'rejected') rejected++;
+
+  idx++;
+  renderJob();
+}
+
+function goBack() {
+  if (history.length === 0) return;
+  const prev = history.pop();
+  idx--;
+  renderJob();
+}
+
+function toggleNote() {
+  const area = document.getElementById('note-area');
+  area.classList.toggle('d-none');
+  if (!area.classList.contains('d-none')) {
+    document.getElementById('rv-note').focus();
+  }
+}
+
+function saveNote() {
+  if (idx >= JOBS.length) return;
+  const j     = JOBS[idx];
+  const notes = document.getElementById('rv-note').value;
+  fetch(`/api/job/${j.id}/notes`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ notes }),
+  });
+  j.notes = notes;
+  document.getElementById('note-area').classList.add('d-none');
+}
+
+function showDone() {
+  const overlay = document.getElementById('done-overlay');
+  overlay.classList.remove('d-none');
+  const skipped = JOBS.length - applied - reviewed - rejected;
+  document.getElementById('done-summary').textContent =
+    `Candidatadas: ${applied} · Revisadas: ${reviewed} · Rejeitadas: ${rejected} · Puladas: ${skipped}`;
+}
+
+// ── Atalhos de teclado ──────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const noteOpen = !document.getElementById('note-area').classList.contains('d-none');
+
+  // Quando nota está aberta, só ESC cancela
+  if (noteOpen) {
+    if (e.key === 'Escape') toggleNote();
+    return;
+  }
+
+  // Ignora quando modal está aberta ou foco está em input
+  if (document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+  if (document.querySelector('.modal.show')) return;
+
+  switch (e.key.toLowerCase()) {
+    case 'a': doAction('applied');  break;
+    case 'r': doAction('reviewed'); break;
+    case 'd': doAction('rejected'); break;
+    case 's': doAction('skip');     break;
+    case 'n': toggleNote();         break;
+    case 'b': goBack();             break;
+    case 'q': window.location.href = '/jobs'; break;
+  }
+});
+
+// Inicializa
+renderJob();
+</script>
+{% endblock %}

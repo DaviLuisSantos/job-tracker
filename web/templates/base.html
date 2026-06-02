@@ -75,11 +75,22 @@
             <i class="bi bi-list-ul me-1"></i>Vagas
           </a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.path == '/review' %}active fw-bold{% endif %}" href="/review">
+            <i class="bi bi-card-checklist me-1"></i>Revisar
+          </a>
+        </li>
       </ul>
-      <button class="btn btn-sm btn-outline-info fw-semibold"
-              data-bs-toggle="modal" data-bs-target="#runModal">
-        <i class="bi bi-play-circle-fill me-1"></i>Executar
-      </button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-secondary fw-semibold"
+                data-bs-toggle="modal" data-bs-target="#exportModal">
+          <i class="bi bi-download me-1"></i>Exportar
+        </button>
+        <button class="btn btn-sm btn-outline-info fw-semibold"
+                data-bs-toggle="modal" data-bs-target="#runModal">
+          <i class="bi bi-play-circle-fill me-1"></i>Executar
+        </button>
+      </div>
     </div>
   </div>
 </nav>
@@ -110,6 +121,98 @@
 </script>
 {% block scripts %}{% endblock %}
 
+<!-- ── Modal: Exportar ────────────────────────────────────────────────────── -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-download text-secondary me-2"></i>Exportar
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small text-muted mb-1">Perfil</label>
+          <select id="exp-profile" class="form-select form-select-sm">
+            <option value="">Todos os perfis</option>
+            {% for p in profile_names %}
+            <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div id="exp-min-score-wrap" class="mb-1">
+          <label class="form-label small text-muted mb-1">Score mínimo <span class="text-muted">(só IA)</span></label>
+          <input type="number" id="exp-min-score" class="form-control form-control-sm"
+                 value="0" min="0" max="100">
+        </div>
+        <div id="exp-result" class="mt-2 small d-none"></div>
+      </div>
+
+      <div class="modal-footer gap-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-outline-success btn-sm" onclick="doExport('excel')">
+          <i class="bi bi-file-earmark-excel me-1"></i>Excel
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="doExport('ai')">
+          <i class="bi bi-robot me-1"></i>Para IA
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function doExport(type) {
+  const profile  = document.getElementById('exp-profile').value;
+  const minScore = document.getElementById('exp-min-score').value;
+  let url = `/api/export/${type}`;
+  const p = new URLSearchParams();
+  if (profile)                       p.set('profile',   profile);
+  if (type === 'ai' && minScore > 0) p.set('min_score', minScore);
+  if (p.toString()) url += '?' + p.toString();
+
+  const res = document.getElementById('exp-result');
+  res.className = 'mt-2 small text-muted';
+  res.textContent = 'Gerando arquivo…';
+
+  // Usa fetch para detectar erro (JSON) vs arquivo (download)
+  fetch(url)
+    .then(r => {
+      const ct = r.headers.get('Content-Type') || '';
+      if (ct.includes('json')) {
+        return r.json().then(d => { throw new Error(d.error || 'Erro desconhecido'); });
+      }
+      return r.blob().then(blob => {
+        const cd  = r.headers.get('Content-Disposition') || '';
+        const m   = cd.match(/filename[^;=\n]*=["']?([^"';\n]+)/i);
+        const name = m ? m[1] : (type === 'excel' ? 'export.xlsx' : 'export.md');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        res.className = 'mt-2 small text-success';
+        res.textContent = '✔ Download iniciado!';
+      });
+    })
+    .catch(e => {
+      res.className = 'mt-2 small text-danger';
+      res.textContent = '✘ ' + e.message;
+    });
+}
+
+// Limpa resultado ao abrir o modal
+document.getElementById('exportModal').addEventListener('show.bs.modal', () => {
+  document.getElementById('exp-result').className = 'mt-2 small d-none';
+  document.getElementById('exp-result').textContent = '';
+});
+</script>
+
 <!-- ── Modal: Executar tarefa ──────────────────────────────────────────────── -->
 <div class="modal fade" id="runModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -132,6 +235,7 @@
               <option value="scrape">🔍 Scrape — buscar novas vagas</option>
               <option value="enrich">📄 Enriquecer descrições</option>
               <option value="rescore">🔄 Re-calcular scores</option>
+              <option value="ai_enrich">🤖 IA — ajustar scores com Gemini</option>
             </select>
           </div>
           <div class="col-sm-3">
@@ -203,7 +307,7 @@ let _runLogFrom      = 0;
 function onRunActionChange() {
   const v = document.getElementById('run-action').value;
   document.getElementById('run-extra-scrape').classList.toggle('d-none', v !== 'scrape');
-  document.getElementById('run-extra-enrich').classList.toggle('d-none', v !== 'enrich');
+  document.getElementById('run-extra-enrich').classList.toggle('d-none', v !== 'enrich' && v !== 'ai_enrich');
 }
 
 function _resetRunModal() {
