@@ -257,6 +257,7 @@ PROFILES = {
             "citizens only", "no sponsorship", "permanent residents only",
             "australian citizenship", "permanent resident",
             "residential only", "5+ years", "3+ years", "2+ years",
+            "2-3 years", "minimum 2 year", "minimum 3 year",
             # Cargos seniores / fora do escopo
             "superintendent", "project manager", "site manager",
             "senior operator", "senior mechanic", "senior technician",
@@ -274,6 +275,7 @@ PROFILES = {
             # Setores irrelevantes que aparecem em buscas genéricas de sponsorship
             "stylist", "salon", "hairdresser", "beauty therapist",
             "hospitality", "barista", "chef", "restaurant",
+            "commercial cookery", "culinary",
             "nurse", "nursing", "aged care", "disability support",
             "real estate", "insurance", "financial planner",
         ],
@@ -286,6 +288,10 @@ PROFILES = {
             "qualified tradesperson", "qualified fitter",
             "auto electrician", "diesel mechanic", "heavy vehicle mechanic",
             "licensed electrician", "qualified boilermaker",
+            # Hospitality: mesmo com FIFO/mining context, cargo de cozinheiro
+            # qualificado não é aplicável — disqualify garante cap mesmo sem
+            # descrição completa (onde "certificate III" normalmente aparece)
+            "chef", "commercial cookery", "head chef",
         ],
     },
 
