@@ -558,13 +558,13 @@ async def run_seek_scraper(
             now  = datetime.now(timezone.utc)
             days = max(1, (now - last_run).days + 1)   # +1 garante overlap de 1 dia
             date_range = days
-            console.print(f"  [dim][{profile_name}] Incremental: últimos {date_range} dia(s)[/dim]")
+            console.print(f"  [dim]\\[{profile_name}] Incremental: últimos {date_range} dia(s)[/dim]")
         else:
-            console.print(f"  [dim][{profile_name}] Primeira execução — buscando tudo[/dim]")
+            console.print(f"  [dim]\\[{profile_name}] Primeira execução — buscando tudo[/dim]")
 
     pairs = [(kw, loc) for kw in keywords for loc in locations]
     console.print(
-        f"\n[bold cyan]Seek [{profile_name}] — "
+        f"\n[bold cyan]Seek \\[{profile_name}] — "
         f"{len(pairs)} buscas"
         f"{' + descrições completas' if fetch_desc else ''}[/bold cyan]"
     )
@@ -608,7 +608,7 @@ async def run_seek_scraper(
 
     status = f" ({errors} erros)" if errors else ""
     console.print(
-        f"\n[bold green]Seek [{profile_name}]: "
+        f"\n[bold green]Seek \\[{profile_name}]: "
         f"{total_new} novas de {total_found} encontradas{status}[/bold green]"
     )
     return {"total_found": total_found, "total_new": total_new, "new_jobs": all_new_jobs}
@@ -662,7 +662,7 @@ async def enrich_stored_jobs(profile: str | None = None, min_score: int = 0):
             negative   = cfg.get("negative_signals", [])
             disqualify = cfg.get("disqualify_signals", [])
             boost      = cfg.get("entry_level_boost", False)
-            console.print(f"\n  [bold][{prof_name}][/bold] {len(group)} vagas")
+            console.print(f"\n  [bold]\\[{prof_name}][/bold] {len(group)} vagas")
             await _enrich_descriptions(
                 client, group, positive, negative, disqualify, boost,
                 score_threshold=score_floor,
