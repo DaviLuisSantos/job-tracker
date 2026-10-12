@@ -17,6 +17,13 @@ python main.py --report
 
 # Daemon agendado (roda e agenda próxima execução)
 python main.py
+
+# Rotina diária uma vez e sai (para cron / systemd timer / Agendador de Tarefas)
+# Saída 1 = algo precisa de atenção; log em data/logs/daily_YYYY-MM-DD.log
+python main.py --daily
+
+# Testes
+python -m pytest
 ```
 
 ## Raio-X do mercado (conteúdo publicável)
@@ -34,6 +41,7 @@ python main.py --market-report [YYYY-MM]
 - Menções ("sponsorship", "working rights"...) vêm do `totalCount` da busca do Seek com o termo — ela cobre o texto completo do anúncio
 - `totalCount` varia com `pageSize` (anúncios promovidos repetidos por página): sempre contar com `pageSize=100`
 - Publicar **só números agregados**, nunca vagas individuais
+- Cada retrato recebe status em `market_runs` (`ok | partial | suspect`); o relatório mensal **só usa `ok`**. Contagem que falha, listagem incompleta, total zerado ou variação diária > 50% (base ≥ 20) tiram o retrato do relatório. Regras em `assess_snapshot()`
 - Desde out/2026 as páginas individuais de vaga do Seek ficam atrás de desafio anti-bot (Cloudflare): `--enrich` e a auto-validação não conseguem descrição completa. Não tentar contornar.
 
 ## Estrutura do projeto
@@ -87,6 +95,16 @@ Definido em `analysis/scoring.py`. Base neutra de 50 pontos:
 - Resultado clampado entre 0 e 100
 
 Para ajustar o perfil: editar `POSITIVE_SIGNALS` e `NEGATIVE_SIGNALS` em `config/config.py`.
+
+## Rotina diária (`run_daily` em `main.py`)
+
+- Coleta por perfil e Raio-X rodam isoladas: erro numa não impede a outra
+- Na rotina diária não se gera Excel nem Markdown para IA (~4 MB/execução); continuam no `--scrape` manual e sob demanda
+- `utils/runlog.py` duplica stdout/stderr em `data/logs/` (retenção de 60 dias)
+
+## Testes
+
+`tests/` com pytest. A fixture `tmp_db` aponta `DB_PATH` para um banco temporário — testes nunca tocam em `data/jobs.db`. Mudou scoring, salário ou o relatório do Raio-X? Rode `python -m pytest`.
 
 ## O que NÃO fazer
 

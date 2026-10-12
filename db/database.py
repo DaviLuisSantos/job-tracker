@@ -73,6 +73,18 @@ CREATE TABLE IF NOT EXISTS market_listings (
     PRIMARY KEY (id, city)
 );
 
+-- Uma linha por retrato do Raio-X. status: ok | partial | suspect.
+-- O relatório mensal só usa retratos 'ok'.
+CREATE TABLE IF NOT EXISTS market_runs (
+    snapshot_date TEXT PRIMARY KEY,
+    status        TEXT NOT NULL,
+    expected      INTEGER,
+    saved         INTEGER,
+    listings      INTEGER,
+    issues        TEXT,
+    ran_at        TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_fit_score ON jobs(fit_score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status    ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_profile   ON jobs(profile);
@@ -463,12 +475,50 @@ def upsert_market_listings(snapshot_date: str, listings: list[dict]) -> None:
         )
 
 
-def fetch_market_counts(start: str, end: str) -> list[dict]:
-    """Contagens com snapshot_date entre start e end (inclusive, 'YYYY-MM-DD')."""
+def save_market_run(snapshot_date: str, status: str, expected: int,
+                    saved: int, listings: int, issues: list[str]) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO market_runs "
+            "(snapshot_date, status, expected, saved, listings, issues) VALUES (?,?,?,?,?,?)",
+            (snapshot_date, status, expected, saved, listings, "\n".join(issues) or None),
+        )
+
+
+def fetch_market_runs(start: str, end: str) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM market_counts WHERE snapshot_date BETWEEN ? AND ? "
+            "SELECT * FROM market_runs WHERE snapshot_date BETWEEN ? AND ? "
             "ORDER BY snapshot_date",
+            (start, end),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def fetch_last_market_totals(before: str) -> dict[tuple[str, str], int]:
+    """Totais (term='') do último retrato 'ok' anterior a `before` → {(categoria, cidade): total}."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT category, city, total FROM market_counts
+            WHERE term = '' AND snapshot_date = (
+                SELECT MAX(snapshot_date) FROM market_runs
+                WHERE status = 'ok' AND snapshot_date < ?
+            )
+            """,
+            (before,),
+        ).fetchall()
+        return {(r["category"], r["city"]): r["total"] for r in rows}
+
+
+def fetch_market_counts(start: str, end: str) -> list[dict]:
+    """Contagens dos retratos 'ok' entre start e end (inclusive, 'YYYY-MM-DD')."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT c.* FROM market_counts c "
+            "JOIN market_runs r ON r.snapshot_date = c.snapshot_date AND r.status = 'ok' "
+            "WHERE c.snapshot_date BETWEEN ? AND ? "
+            "ORDER BY c.snapshot_date",
             (start, end),
         ).fetchall()
         return [dict(r) for r in rows]

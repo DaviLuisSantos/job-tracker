@@ -23,6 +23,7 @@ from analysis.review import review_jobs
 from analysis.notifications import notify_high_score
 from analysis.market_report import build_market_report
 from scrapers.seek_market import run_market_snapshot
+from utils.runlog import log_to_file
 from config.config import PROFILES, SCRAPER_CONFIG, SCHEDULE_TIME
 
 console = Console()
@@ -43,6 +44,7 @@ def _parse_args():
     explain    = "--explain"    in args
     market     = "--market"     in args
     market_rep = "--market-report" in args
+    daily      = "--daily"      in args
 
     profile   = None
     min_score = 0
@@ -75,10 +77,10 @@ def _parse_args():
         if idx + 1 < len(args) and not args[idx + 1].startswith("--"):
             month = args[idx + 1]
 
-    return scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, month, profile, min_score, port
+    return scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, daily, month, profile, min_score, port
 
 
-async def run_all(profile: str | None = None):
+async def run_all(profile: str | None = None, exports: bool = True):
     if profile and profile not in PROFILES:
         console.print(f"[red]Perfil '{profile}' nao encontrado. Disponiveis: {', '.join(PROFILES)}[/red]")
         return
@@ -100,8 +102,11 @@ async def run_all(profile: str | None = None):
             all_new_jobs.extend(r.get("new_jobs", []))
 
     generate_report(profile)
-    export_excel(profile)
-    export_for_ai(profile)
+    # Excel + Markdown para IA somam ~4 MB por execução: só no scrape manual.
+    # Na rotina diária ficam sob demanda (--export / --ai-export / interface web).
+    if exports:
+        export_excel(profile)
+        export_for_ai(profile)
 
     # Notificação de vagas com alto score
     alert_min = SCRAPER_CONFIG.get("alert_min_score", 75)
@@ -221,14 +226,42 @@ def run_sync(profile: str | None = None):
     asyncio.run(run_all(profile))
 
 
-def run_daily():
-    run_sync()
-    asyncio.run(run_market_snapshot())
+def run_daily() -> bool:
+    """
+    Rotina diária. Cada etapa roda isolada: falha numa não impede a outra.
+    Retorna False se algo precisa de atenção (erro ou retrato fora de 'ok').
+    """
+    ok = True
+    with log_to_file("daily") as log_path:
+        console.print(f"[dim]Log: {log_path}[/dim]")
+
+        try:
+            asyncio.run(run_all(exports=False))
+        except Exception:
+            console.print("[red]Coleta por perfil falhou:[/red]")
+            console.print_exception()
+            ok = False
+
+        try:
+            ok = asyncio.run(run_market_snapshot()) == "ok" and ok
+        except Exception:
+            console.print("[red]Raio-X falhou:[/red]")
+            console.print_exception()
+            ok = False
+
+        console.print(f"[{'green' if ok else 'red'}]Rotina diária: "
+                      f"{'ok' if ok else 'precisa de atenção'}[/]")
+    return ok
 
 
 def main():
     init_db()
-    scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, month, profile, min_score, port = _parse_args()
+    scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, daily, month, profile, min_score, port = _parse_args()
+
+    if daily:
+        # Uma execução e sai — para cron / systemd timer / Agendador de Tarefas.
+        # Código de saída 1 sinaliza que algo precisa de atenção.
+        sys.exit(0 if run_daily() else 1)
 
     if market:
         asyncio.run(run_market_snapshot())
@@ -299,7 +332,11 @@ def main():
 
     try:
         while True:
-            schedule.run_pending()
+            try:
+                schedule.run_pending()
+            except Exception:
+                # schedule não captura exceções: sem isso, um erro mataria o daemon
+                console.print_exception()
             time.sleep(60)
     except KeyboardInterrupt:
         console.print("\n[yellow]Encerrado.[/yellow]")

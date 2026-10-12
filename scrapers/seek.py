@@ -185,10 +185,11 @@ async def _enrich_descriptions(
     try:
         from playwright.async_api import async_playwright
 
-        pw_sem = asyncio.Semaphore(3)
+        pw_sem  = asyncio.Semaphore(3)
+        blocked = False   # desafio anti-bot (Cloudflare) detectado → para tudo
 
         async def pw_fetch_one(job: dict, context):
-            nonlocal failed
+            nonlocal failed, blocked
             raw_id = job["id"].replace("seek_", "")
             url    = f"https://www.seek.com.au/job/{raw_id}"
             page   = await context.new_page()
@@ -220,6 +221,12 @@ async def _enrich_descriptions(
                 page.on("response", on_response)
 
                 await page.goto(url, wait_until="load", timeout=30_000)
+
+                # Desde out/2026 o Seek serve um desafio do Cloudflare nas
+                # páginas de vaga. Não tentamos contornar: marca e desiste.
+                if "just a moment" in (await page.title()).lower():
+                    blocked = True
+                    return
 
                 # Aguarda scripts de hidratação do React
                 await asyncio.sleep(1.5)
@@ -299,7 +306,8 @@ async def _enrich_descriptions(
 
             async def run_one(job):
                 async with pw_sem:
-                    await pw_fetch_one(job, ctx)
+                    if not blocked:
+                        await pw_fetch_one(job, ctx)
 
             console.print(
                 f"  [dim]Playwright: buscando {len(candidates)} descrições "
@@ -308,6 +316,13 @@ async def _enrich_descriptions(
             await asyncio.gather(*[run_one(j) for j in candidates],
                                   return_exceptions=True)
             await browser.close()
+
+        if blocked:
+            console.print(
+                "  [yellow]Seek bloqueou as páginas de vaga (desafio anti-bot) — "
+                "descrições completas indisponíveis, scores mantidos.[/yellow]"
+            )
+            return
 
         console.print(
             f"  [dim]Playwright: {updated} atualizados"

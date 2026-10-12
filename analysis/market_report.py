@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from config.config import MARKET_CONFIG
-from db.database import fetch_market_counts, fetch_market_listings
+from db.database import fetch_market_counts, fetch_market_listings, fetch_market_runs
 
 console    = Console()
 OUTPUT_DIR = Path(__file__).parent.parent / "data" / "market"
@@ -82,7 +82,7 @@ def build_market_report(month: str | None = None) -> Path | None:
     cur  = _avg_counts(month)
     prev = _avg_counts(_prev_month(month))
     if cur.empty:
-        console.print(f"[yellow]Sem retratos em {month}. Rode: python main.py --market[/yellow]")
+        console.print(f"[yellow]Sem retratos válidos em {month}. Rode: python main.py --market[/yellow]")
         return None
 
     listings = pd.DataFrame(fetch_market_listings(start, end))
@@ -91,12 +91,14 @@ def build_market_report(month: str | None = None) -> Path | None:
         listings["salary_mid"]   = listings[["salary_annual_min", "salary_annual_max"]].mean(axis=1)
 
     days_covered = int(cur["days"].max())
+    skipped      = [r for r in fetch_market_runs(start, end) if r["status"] != "ok"]
     terms        = list(MARKET_CONFIG.get("mention_terms", {}))
 
     lines = [
         f"# Raio-X do mercado australiano — {month}",
         "",
-        f"Fonte: Seek (subclassificações oficiais). Média de {days_covered} retrato(s) diário(s) no mês.",
+        f"Fonte: Seek (subclassificações oficiais). Média de {days_covered} retrato(s) diário(s) no mês"
+        + (f"; {len(skipped)} descartado(s) por coleta incompleta ou suspeita." if skipped else "."),
         "",
     ]
 
@@ -168,5 +170,8 @@ def build_market_report(month: str | None = None) -> Path | None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
     console.print(tbl)
+    for r in skipped:
+        console.print(f"[yellow]Descartado {r['snapshot_date']} ({r['status']}): "
+                      f"{(r['issues'] or '').replace(chr(10), '; ')}[/yellow]")
     console.print(f"[green]Relatório salvo em {path}[/green]")
     return path

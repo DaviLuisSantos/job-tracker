@@ -6,3 +6,4 @@ pandas==3.0.3
 playwright>=1.40.0
 rich==15.0.0
 schedule==1.2.2
+pytest>=8.0

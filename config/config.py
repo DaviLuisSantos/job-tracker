@@ -311,7 +311,9 @@ SCRAPER_CONFIG = {
     # acima deste limiar buscam descrição completa para evitar falsos positivos
     # (requisitos de cidadania, years of experience etc. só aparecem no full desc)
     # Coloque None para desativar.
-    "auto_enrich_threshold":   65,
+    # Desativado desde out/2026: o Seek bloqueia as páginas de vaga com
+    # desafio anti-bot, então isso só abria o Chromium à toa todo dia.
+    "auto_enrich_threshold":   None,
 
     # Scraping incremental: busca apenas vagas publicadas desde a última execução
     # False = sempre busca todas (útil para a primeira execução ou re-indexação)
