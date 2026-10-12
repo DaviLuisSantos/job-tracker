@@ -328,5 +328,34 @@ SCRAPER_CONFIG = {
     "no_sponsor_max_score":    72,
 }
 
+# =====================================================
+#  RAIO-X DO MERCADO — números agregados para publicar
+# =====================================================
+# Categorias = subclassificações oficiais do Seek (filtro limpo, sem depender
+# de palavra-chave). Para descobrir o ID de outra área, veja o campo
+# "classifications" de qualquer vaga retornada pela API.
+MARKET_CONFIG = {
+    "categories": {
+        "HVAC-R":          "1313",        # Air Conditioning & Refrigeration
+        "Elétrica":        "6230",        # Electricians
+        "Desenvolvimento": "6287,6290",   # Developers/Programmers + Engineering - Software
+    },
+    # Cidades com contagens + vagas individuais (salário, anúncios repetidos)
+    "cities": ["Perth WA"],
+    # Cidades só com contagens (barato: 1 requisição por termo)
+    "count_only_cities": ["All Australia"],
+    # Termos buscados no texto completo do anúncio pela própria busca do Seek.
+    # Mede MENÇÃO, não oferta: "no sponsorship" também conta em "sponsorship".
+    "mention_terms": {
+        "sponsorship":    "sponsorship",
+        "482":            "482",
+        "working_rights": '"working rights"',
+        "citizen":        "citizen",
+    },
+    "page_size":           100,
+    "max_listing_pages":   10,     # teto de segurança por categoria+cidade
+    "delay_between_calls": 1.0,
+}
+
 # Horário de execução automática do daemon (HH:MM)
 SCHEDULE_TIME = "08:00"

@@ -19,6 +19,23 @@ python main.py --report
 python main.py
 ```
 
+## Raio-X do mercado (conteúdo publicável)
+
+```bash
+# Retrato do dia: contagens + vagas das categorias em MARKET_CONFIG (o daemon já roda)
+python main.py --market
+
+# Relatório agregado do mês → data/market/raio-x_YYYY-MM.md
+python main.py --market-report [YYYY-MM]
+```
+
+- Coleta em `scrapers/seek_market.py`, relatório em `analysis/market_report.py`, tabelas `market_counts` e `market_listings`
+- Categorias são subclassificações oficiais do Seek (`subclassification`), não palavras-chave
+- Menções ("sponsorship", "working rights"...) vêm do `totalCount` da busca do Seek com o termo — ela cobre o texto completo do anúncio
+- `totalCount` varia com `pageSize` (anúncios promovidos repetidos por página): sempre contar com `pageSize=100`
+- Publicar **só números agregados**, nunca vagas individuais
+- Desde out/2026 as páginas individuais de vaga do Seek ficam atrás de desafio anti-bot (Cloudflare): `--enrich` e a auto-validação não conseguem descrição completa. Não tentar contornar.
+
 ## Estrutura do projeto
 
 ```

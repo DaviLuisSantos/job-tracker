@@ -42,6 +42,37 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     ran_at    TEXT DEFAULT (datetime('now'))
 );
 
+-- Raio-X do mercado: contagem diária de vagas abertas por categoria/cidade.
+-- term = '' é o total; os demais são menções no texto do anúncio.
+CREATE TABLE IF NOT EXISTS market_counts (
+    snapshot_date TEXT NOT NULL,
+    category      TEXT NOT NULL,
+    city          TEXT NOT NULL,
+    term          TEXT NOT NULL DEFAULT '',
+    total         INTEGER,
+    PRIMARY KEY (snapshot_date, category, city, term)
+);
+
+-- Vagas vistas em cada coleta do Raio-X. first_seen/last_seen dão a série
+-- histórica por vaga: ela esteve aberta entre essas duas datas.
+CREATE TABLE IF NOT EXISTS market_listings (
+    id                TEXT NOT NULL,
+    city              TEXT NOT NULL,
+    category          TEXT NOT NULL,
+    title             TEXT,
+    company           TEXT,
+    location          TEXT,
+    work_type         TEXT,
+    salary            TEXT,
+    salary_period     TEXT,
+    salary_annual_min INTEGER,
+    salary_annual_max INTEGER,
+    listed_at         TEXT,
+    first_seen        TEXT NOT NULL,
+    last_seen         TEXT NOT NULL,
+    PRIMARY KEY (id, city)
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_fit_score ON jobs(fit_score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status    ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_profile   ON jobs(profile);
@@ -373,4 +404,81 @@ def fetch_scrape_runs(profile: str | None = None, limit: int = 10) -> list[dict]
             rows = conn.execute(
                 "SELECT * FROM scrape_runs ORDER BY ran_at DESC LIMIT ?", (limit,)
             ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Raio-X do mercado ─────────────────────────────────────────────────────────
+
+def save_market_counts(snapshot_date: str, rows: list[tuple]) -> None:
+    """
+    Grava as contagens de um dia. Rodar de novo no mesmo dia sobrescreve.
+
+    rows: lista de tuplas (category, city, term, total)
+    """
+    if not rows:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO market_counts "
+            "(snapshot_date, category, city, term, total) VALUES (?,?,?,?,?)",
+            [(snapshot_date, *r) for r in rows],
+        )
+
+
+def upsert_market_listings(snapshot_date: str, listings: list[dict]) -> None:
+    """Registra vagas vistas hoje: nova → first_seen; já vista → avança last_seen."""
+    if not listings:
+        return
+    from analysis.salary import parse_salary
+    rows = []
+    for job in listings:
+        sal = parse_salary(job.get("salary"))
+        rows.append({
+            **job,
+            "salary_period":     sal["salary_period"],
+            "salary_annual_min": sal["salary_annual_min"],
+            "salary_annual_max": sal["salary_annual_max"],
+            "seen":              snapshot_date,
+        })
+    with get_conn() as conn:
+        conn.executemany(
+            """
+            INSERT INTO market_listings (
+                id, city, category, title, company, location, work_type,
+                salary, salary_period, salary_annual_min, salary_annual_max,
+                listed_at, first_seen, last_seen
+            ) VALUES (
+                :id, :city, :category, :title, :company, :location, :work_type,
+                :salary, :salary_period, :salary_annual_min, :salary_annual_max,
+                :listed_at, :seen, :seen
+            )
+            ON CONFLICT(id, city) DO UPDATE SET
+                last_seen         = excluded.last_seen,
+                salary            = excluded.salary,
+                salary_period     = excluded.salary_period,
+                salary_annual_min = excluded.salary_annual_min,
+                salary_annual_max = excluded.salary_annual_max
+            """,
+            rows,
+        )
+
+
+def fetch_market_counts(start: str, end: str) -> list[dict]:
+    """Contagens com snapshot_date entre start e end (inclusive, 'YYYY-MM-DD')."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM market_counts WHERE snapshot_date BETWEEN ? AND ? "
+            "ORDER BY snapshot_date",
+            (start, end),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def fetch_market_listings(start: str, end: str) -> list[dict]:
+    """Vagas que estiveram abertas em algum momento entre start e end."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM market_listings WHERE first_seen <= ? AND last_seen >= ?",
+            (end, start),
+        ).fetchall()
         return [dict(r) for r in rows]

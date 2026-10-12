@@ -21,6 +21,8 @@ from analysis.ai_export import export_for_ai
 from analysis.ai_enricher import enrich_with_ai
 from analysis.review import review_jobs
 from analysis.notifications import notify_high_score
+from analysis.market_report import build_market_report
+from scrapers.seek_market import run_market_snapshot
 from config.config import PROFILES, SCRAPER_CONFIG, SCHEDULE_TIME
 
 console = Console()
@@ -39,6 +41,8 @@ def _parse_args():
     ai_enrich  = "--ai-enrich"  in args
     web        = "--web"        in args
     explain    = "--explain"    in args
+    market     = "--market"     in args
+    market_rep = "--market-report" in args
 
     profile   = None
     min_score = 0
@@ -65,7 +69,13 @@ def _parse_args():
             except ValueError:
                 pass
 
-    return scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, profile, min_score, port
+    month = None
+    if market_rep:
+        idx = args.index("--market-report")
+        if idx + 1 < len(args) and not args[idx + 1].startswith("--"):
+            month = args[idx + 1]
+
+    return scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, month, profile, min_score, port
 
 
 async def run_all(profile: str | None = None):
@@ -211,9 +221,22 @@ def run_sync(profile: str | None = None):
     asyncio.run(run_all(profile))
 
 
+def run_daily():
+    run_sync()
+    asyncio.run(run_market_snapshot())
+
+
 def main():
     init_db()
-    scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, profile, min_score, port = _parse_args()
+    scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, month, profile, min_score, port = _parse_args()
+
+    if market:
+        asyncio.run(run_market_snapshot())
+        return
+
+    if market_rep:
+        build_market_report(month)
+        return
 
     if scrape:
         if full_desc:
@@ -271,8 +294,8 @@ def main():
     console.print(f"[bold cyan]Job Tracker ativo — execucao diaria as {SCHEDULE_TIME}[/bold cyan]")
     console.print("[dim]   Use Ctrl+C para encerrar\n[/dim]")
 
-    run_sync()
-    schedule.every().day.at(SCHEDULE_TIME).do(run_sync)
+    run_daily()
+    schedule.every().day.at(SCHEDULE_TIME).do(run_daily)
 
     try:
         while True:

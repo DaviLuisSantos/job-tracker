@@ -360,6 +360,7 @@ async def _fetch_page(
     location:   str,
     page:       int,
     date_range: int | None = None,
+    extra:      dict | None = None,
 ) -> dict:
     params = {
         "siteKey":            "AU-Main",
@@ -373,6 +374,8 @@ async def _fetch_page(
     }
     if date_range is not None:
         params["dateRange"] = str(date_range)   # ex: "3" = últimos 3 dias
+    if extra:
+        params.update(extra)                    # ex: {"subclassification": "1313"}
 
     for attempt in range(1, 4):
         r = await client.get(_API_URL, params=params, headers=_HEADERS)
