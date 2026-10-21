@@ -6,6 +6,18 @@
       "runtimeExecutable": ".venv\\Scripts\\python.exe",
       "runtimeArgs": ["main.py", "--web", "--port", "5000"],
       "port": 5000
+    },
+    {
+      "name": "job-radar-web",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "D:\\Desenvolvimento\\job-radar-au\\src\\JobRadar.Web", "--launch-profile", "JobRadar.Web"],
+      "port": 5380
+    },
+    {
+      "name": "job-radar-web-dev",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "D:\\Desenvolvimento\\job-radar-au\\src\\JobRadar.Web", "--launch-profile", "JobRadar.Web", "--", "--urls", "http://localhost:5381"],
+      "port": 5381
     }
   ]
 }
