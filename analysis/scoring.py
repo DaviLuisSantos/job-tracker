@@ -1,5 +1,8 @@
-import re
 import functools
+import hashlib
+import json
+import re
+from datetime import date
 
 # ── Padrões pré-compilados ────────────────────────────────────────────────────
 
@@ -129,34 +132,94 @@ _NO_EXPERIENCE_SIGNALS = [
 ]
 
 
-# ── Score principal ───────────────────────────────────────────────────────────
+# Cargo sênior/gestão no título. Para quem busca entrada, a vaga não é aplicável
+# — elimina em vez de só tirar pontos, senão "Senior Full Stack Developer"
+# (.NET + Azure no título) empata com vagas júnior.
+_SENIOR_TITLE_RE = re.compile(
+    r'\b(?:senior|snr|sr|lead|leader|principal|head|manager|director|architect'
+    r'|superintendent|supervisor|foreman|foremen|chief|staff\s+engineer)s?\b',
+    re.I,
+)
 
-def calculate_fit_score(
+# Título com mais de um cargo ("Graduate/ Junior Project Manager",
+# "Foreman, Tradesman and Apprentice Plumbers") — a marca de entrada vence.
+_JUNIOR_TITLE_RE = re.compile(
+    r'\b(?:graduate|junior|entry[\s-]level|assistant|apprentice\w*|trainee\w*)\b', re.I,
+)
+
+# Título de formação (aprendiz/trainee): a vaga leva à qualificação, então
+# "Certificate III" no texto é o curso oferecido, não um requisito.
+_TRAINING_TITLE_RE = re.compile(
+    r'\b(?:apprentice\w*|pre-apprentice\w*|trainee\w*|cadet\w*)\b', re.I,
+)
+
+# Título de entrada: libera os `qualified_titles` do perfil
+# ("Drillers Offsider" não é "Driller", "Trade Assistant Electrician" não é eletricista).
+_ENTRY_TITLE_RE = re.compile(
+    r'\b(?:apprentice\w*|pre-apprentice\w*|trainee\w*|cadet\w*|assistant|offsiders?'
+    r'|labourers?|helpers?|hands?|graduate|junior|entry)\b|\bTA\b|\btrades?\s+assist',
+    re.I,
+)
+
+# Sinais negativos que falam de qualificação — não valem para títulos de formação
+_QUALIFICATION_WORDS = ("cert", "qualif")
+
+# ── Score principal ───────────────────────────────────────────────────────────
+#
+# Estrutura:
+#   1. Eliminação (score 0 = nunca mostrar): cidadania/PR exigida, cargo sênior,
+#      IA dizendo que exige cidadania.
+#   2. Pontos: base 50 + sinais do perfil + patrocínio + modalidade + entrada.
+#   3. Penalidades que preservam a ordem: sem patrocínio confirmado, vaga velha.
+#   4. Teto de qualificação: exige formação que o candidato não tem.
+#
+# Vagas não eliminadas ficam entre 1 e 100 — 0 é reservado para eliminação.
+
+# Itens da explicação: type ∈ pos | neg | sponsor | sponsor_neg | bonus | cap
+#                      | disqualify | age | ai  (a interface web usa os mesmos)
+
+def _item(items: list, type_: str, signal: str, where: str, pts: int):
+    items.append({"type": type_, "signal": signal, "where": where, "pts": pts})
+
+
+def _age_days(listed_at: str | None, today: date) -> int | None:
+    if not listed_at:
+        return None
+    try:
+        return (today - date.fromisoformat(listed_at[:10])).days
+    except ValueError:
+        return None
+
+
+def explain_fit_score(
     job: dict,
     positive_signals: list[str],
     negative_signals: list[str],
     disqualify_signals: list[str] | None = None,
-    disqualify_max_score: int = 60,
+    disqualify_max_score: int = 35,
     entry_level_boost: bool = False,
     visa_required: bool = False,
-    no_sponsor_max: int = 72,
-) -> int:
+    no_sponsor_penalty: int = 10,
+    qualified_titles: list[str] | None = None,
+    exclude_senior: bool = False,
+    aging_after_days: int = 14,
+    aging_penalty: int = 5,
+    stale_after_days: int = 30,
+    stale_penalty: int = 30,
+    today: date | None = None,
+) -> dict:
     """
-    Calcula fit score 0–100.
+    Calcula o fit score e devolve {"base", "items", "final"}.
 
     Título tem peso 2× em relação ao corpo:
       sinal positivo no título → +16 (corpo → +8)
       sinal negativo no título → −30 (corpo → −15)
 
-    Penalidades universais (independem do perfil):
-      • "no sponsorship" / "not sponsored"  → sponsor boost não dispara
-      • "Australian Citizenship" / "AU Citizen" / "Citizens Only"
-        / NV1/NV2 clearance → retorna 0 (hard disqualifier)
-
-    disqualify_signals: sinais que limitam o score a disqualify_max_score (padrão 60)
-      independente de quantos positivos a vaga tiver. Usado para requisitos de
-      qualificação formal que o candidato ainda não tem (trade cert, licença, etc.).
+    disqualify_signals / qualified_titles: requisito de qualificação formal que o
+      candidato ainda não tem — limitam o score a disqualify_max_score.
+      Títulos de formação (apprentice, trainee) ignoram os sinais de certificado.
     """
+    today      = today or date.today()
     title_text = (job.get("title") or "").lower()
     body_text  = " ".join([
         job.get("description") or "",
@@ -164,89 +227,193 @@ def calculate_fit_score(
         job.get("work_type")   or "",
     ]).lower()
     full_text = f"{title_text} {body_text}"
+    items: list[dict] = []
 
+    def excluded(signal: str, where: str) -> dict:
+        _item(items, "disqualify", signal, where, -50)
+        return {"base": 50, "items": items, "final": 0}
+
+    # ── 1. Eliminação ────────────────────────────────────────────
     # Cidadania exigida = disqualificador absoluto para quem precisa de visto.
-    # Retorna 0 antes de qualquer cálculo — vaga não deve aparecer em nenhuma lista.
-    if bool(_CITIZEN_REQUIRED_RE.search(full_text)):
-        return 0
+    if _CITIZEN_REQUIRED_RE.search(full_text):
+        return excluded("Cidadania/PR exigida", "texto")
 
+    ai_stance    = job.get("ai_visa_stance") if job.get("ai_enriched") else None
+    ai_seniority = job.get("ai_seniority")   if job.get("ai_enriched") else None
+    if ai_stance == "citizen_required":
+        return excluded("IA: cidadania/PR exigida", "IA")
+
+    if exclude_senior:
+        m = _SENIOR_TITLE_RE.search(title_text)
+        if m and not _JUNIOR_TITLE_RE.search(title_text):
+            return excluded(f"Cargo sênior: {m.group(0)}", "título")
+        if ai_seniority == "senior":
+            return excluded("IA: cargo sênior", "IA")
+
+    training_title = bool(_TRAINING_TITLE_RE.search(title_text))
     score = 50
 
-    # ── Sinais do perfil ──────────────────────────────────────────
+    # ── 2. Sinais do perfil ──────────────────────────────────────
     # Positivos: word boundaries + verificação de contexto negado.
     # Ex: "sponsorship" em "no sponsorship available" NÃO soma pontos.
     for signal in positive_signals:
         if _match_signal(signal, title_text):
-            score += 16          # título: peso 2×
+            _item(items, "pos", signal, "título", 16)
+            score += 16
         elif _match_signal(signal, body_text):
+            _item(items, "pos", signal, "corpo", 8)
             score += 8
 
-    # Negativos: word boundaries, sem verificação de negação
-    # (negação de um sinal negativo seria bom, mas é raro e complexo).
+    # Negativos: word boundaries, sem verificação de negação.
     for signal in negative_signals:
+        if training_title and any(w in signal.lower() for w in _QUALIFICATION_WORDS):
+            continue
         sig_re = _compile_signal(signal)
         if sig_re.search(title_text):
-            score -= 30          # negativo no título: descarte quase certo
+            _item(items, "neg", signal, "título", -30)
+            score -= 30
         elif sig_re.search(body_text):
+            _item(items, "neg", signal, "corpo", -15)
             score -= 15
 
-    # ── Boosts / penalidades universais ──────────────────────────
-
-    # Patrocínio de visto (+20) — só quando mencionado positivamente.
-    # _NEG_SPONSOR_RE é a proteção primária aqui; usa substring simples porque
-    # "sponsor" deve bater em "sponsorship", "sponsored", etc.
-    # O problema de "no sponsorship" já foi corrigido no loop de positive_signals
-    # acima via _match_signal — aqui não há dupla contagem.
-    _sponsor_neg       = bool(_NEG_SPONSOR_RE.search(full_text))
-    _sponsor_boost     = "sponsor" in full_text and not _sponsor_neg
-    # _POS_SPONSOR_SIGNALS são substrings e podem colidir com frases negadas
-    # (ex: "no sponsorship available" contém "sponsorship available").
-    # Gateamos ambos por _sponsor_neg para evitar falso positivo.
-    _sponsor_confirmed = (not _sponsor_neg) and any(
-        s in full_text for s in _POS_SPONSOR_SIGNALS
+    # ── Patrocínio de visto ──────────────────────────────────────
+    # _NEG_SPONSOR_RE é a proteção primária; "sponsor" como substring cobre
+    # "sponsorship", "sponsored" etc. _POS_SPONSOR_SIGNALS também são substrings
+    # ("no sponsorship available" contém "sponsorship available"), então ambos
+    # são gateados pela negação.
+    sponsor_neg       = bool(_NEG_SPONSOR_RE.search(full_text)) or ai_stance == "negative"
+    sponsor_confirmed = not sponsor_neg and (
+        any(s in full_text for s in _POS_SPONSOR_SIGNALS) or ai_stance == "positive"
     )
-
-    if _sponsor_boost or _sponsor_confirmed:
+    if sponsor_confirmed or ("sponsor" in full_text and not sponsor_neg):
+        _item(items, "sponsor", "Patrocínio mencionado", "texto", 20)
         score += 20
+    elif sponsor_neg:
+        _item(items, "sponsor_neg", "Patrocínio negado", "texto", 0)
 
     # Modalidade de trabalho
     if _compile_signal("remote").search(full_text):
+        _item(items, "bonus", "Remote", "texto", 10)
         score += 10
     elif _compile_signal("hybrid").search(full_text):
+        _item(items, "bonus", "Hybrid", "texto", 5)
         score += 5
 
-    # FIFO (+15) — só aplica quando "fifo" não está nos sinais do perfil
-    # (evita double-count para o perfil fifo que já tem "FIFO" em positive_signals)
-    _fifo_in_profile = any("fifo" in s.lower() or "fly-in" in s.lower() for s in positive_signals)
-    if not _fifo_in_profile and (
+    # FIFO (+15) — só quando "fifo" não está nos sinais do perfil (evita contar duas vezes)
+    fifo_in_profile = any("fifo" in s.lower() or "fly-in" in s.lower() for s in positive_signals)
+    if not fifo_in_profile and (
         _compile_signal("fifo").search(full_text)
         or _compile_signal("fly-in fly-out").search(full_text)
     ):
+        _item(items, "bonus", "FIFO", "texto", 15)
         score += 15
 
-    # ── Boost entrada (perfis não-tech) ───────────────────────────
     if entry_level_boost:
         for signal in _NO_EXPERIENCE_SIGNALS:
             if _match_signal(signal, full_text):
+                _item(items, "bonus", f"Entrada: {signal}", "texto", 12)
                 score += 12
 
-    # ── Cap para vagas sem sponsorship confirmado (visa_required=True) ──
-    # Bypass do cap só com sinais específicos como "482", "employer sponsored",
-    # "visa sponsorship available" etc. — não basta "sponsor" genérico no teaser.
-    # Isso evita que "Visa sponsorship is not available" ou "sponsorship" em
-    # bullet point neutro sejam confundidos com oferta real de visto.
-    if visa_required:
-        if not _sponsor_confirmed:
-            score = min(score, no_sponsor_max)
+    # ── 3. Penalidades que preservam a ordem ─────────────────────
+    # Aplicadas sobre o score já limitado a 100: se viessem antes, uma vaga com
+    # 140 de pontos brutos absorveria o desconto e continuaria em 100.
+    if score > 100:
+        _item(items, "cap", "Limite de 100", "—", 100 - score)
+        score = 100
 
-    # ── Disqualify: requisito de qualificação formal que o candidato não tem ──
-    # Aplica APÓS todos os cálculos — garante que vagas com boas condições
-    # (FIFO, 482, Karratha) mas que exigem trade cert fiquem visíveis mas
-    # abaixo do threshold de alerta.
-    if disqualify_signals:
-        for signal in disqualify_signals:
-            if _compile_signal(signal).search(full_text):
-                score = min(score, disqualify_max_score)
+    # Sem patrocínio confirmado: desconta, mas não achata. (O antigo teto de 72
+    # empatava ~2 mil vagas no mesmo valor.)
+    if visa_required and not sponsor_confirmed:
+        pen = 15 if sponsor_neg else no_sponsor_penalty
+        _item(items, "cap", "Sem patrocínio confirmado", "—", -pen)
+        score -= pen
+
+    age = _age_days(job.get("listed_at"), today)
+    if age is not None:
+        if age > stale_after_days:
+            _item(items, "age", f"Publicada há {age} dias (provavelmente encerrada)", "data", -stale_penalty)
+            score -= stale_penalty
+        elif age > aging_after_days:
+            _item(items, "age", f"Publicada há {age} dias", "data", -aging_penalty)
+            score -= aging_penalty
+
+    # ── 4. Teto de qualificação ──────────────────────────────────
+    # Aplica APÓS todos os cálculos — vaga com boas condições (FIFO, 482) mas que
+    # exige formação fica visível, abaixo das vagas aplicáveis.
+    reason = None
+    if not _ENTRY_TITLE_RE.search(title_text):
+        for t in qualified_titles or []:
+            if _compile_qualified_title(t).search(title_text):
+                reason = (f"Exige qualificação: {t}", "título")
                 break
+    if not reason and not training_title:
+        for signal in disqualify_signals or []:
+            if _compile_signal(signal).search(full_text):
+                reason = (f"Exige qualificação: {signal}", "texto")
+                break
+    if reason and score > disqualify_max_score:
+        _item(items, "disqualify", reason[0], reason[1], disqualify_max_score - score)
+        score = disqualify_max_score
 
-    return max(0, min(100, score))
+    return {"base": 50, "items": items, "final": max(1, min(100, score))}
+
+
+@functools.lru_cache(maxsize=256)
+def _compile_qualified_title(title: str) -> re.Pattern:
+    """Como _compile_signal, aceitando plural ("Plumbers", "Welders")."""
+    return re.compile(r'(?<!\w)' + re.escape(title) + r's?(?!\w)', re.I)
+
+
+def calculate_fit_score(job: dict, positive_signals: list[str],
+                        negative_signals: list[str], disqualify_signals=None, **kw) -> int:
+    """Só o número — mesmos parâmetros de explain_fit_score."""
+    return explain_fit_score(job, positive_signals, negative_signals,
+                             disqualify_signals, **kw)["final"]
+
+
+# ── Ponto de entrada usado pelo resto do projeto ──────────────────────────────
+
+def _profile_kwargs(profile: dict) -> dict:
+    from config.config import SCRAPER_CONFIG as sc
+    return dict(
+        positive_signals     = profile.get("positive_signals", []),
+        negative_signals     = profile.get("negative_signals", []),
+        disqualify_signals   = profile.get("disqualify_signals", []),
+        qualified_titles     = profile.get("qualified_titles", []),
+        entry_level_boost    = profile.get("entry_level_boost", False),
+        disqualify_max_score = sc.get("disqualify_max_score", 35),
+        visa_required        = sc.get("visa_required", False),
+        no_sponsor_penalty   = sc.get("no_sponsor_penalty", 10),
+        exclude_senior       = sc.get("exclude_senior_titles", False),
+        aging_after_days     = sc.get("aging_after_days", 14),
+        aging_penalty        = sc.get("aging_penalty", 5),
+        stale_after_days     = sc.get("stale_after_days", 30),
+        stale_penalty        = sc.get("stale_penalty", 30),
+    )
+
+
+def explain_job(job: dict, today: date | None = None) -> dict:
+    """Explicação do score de uma vaga com as regras do perfil dela em config.py."""
+    from config.config import PROFILES
+    profile = PROFILES.get(job.get("profile") or "", {})
+    return explain_fit_score(job, **_profile_kwargs(profile), today=today)
+
+
+def score_job(job: dict, today: date | None = None) -> int:
+    """Score de uma vaga com as regras do perfil dela em config.py."""
+    return explain_job(job, today)["final"]
+
+
+def rules_fingerprint() -> str:
+    """
+    Hash das regras de score em config.py + SCORING_VERSION. Muda quando um
+    sinal ou parâmetro muda — aí os scores guardados no banco estão velhos.
+    """
+    from config.config import PROFILES
+    rules = {name: _profile_kwargs(p) for name, p in sorted(PROFILES.items())}
+    blob  = json.dumps([SCORING_VERSION, rules], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(blob.encode()).hexdigest()
+
+
+# Incrementar quando a lógica deste arquivo mudar — força recálculo no banco.
+SCORING_VERSION = 2

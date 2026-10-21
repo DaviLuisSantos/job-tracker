@@ -97,7 +97,7 @@
         <td><span class="score-badge {{ 'score-ex' if s>=80 else ('score-gd' if s>=70 else 'score-md') }}">{{ s }}</span></td>
         <td class="fw-semibold">{{ j.title or '—' }}</td>
         <td class="text-muted">{{ j.company or '—' }}</td>
-        <td class="text-muted small">{{ j.location or '—' }}</td>
+        <td class="text-muted small">{{ j.location_label or j.location or '—' }}</td>
         <td class="small">
           {% if j.salary_annual_min %}
             ${{ '{:,}'.format(j.salary_annual_min|int) }}

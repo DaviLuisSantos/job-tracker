@@ -23,7 +23,8 @@ import time
 
 from rich.console import Console
 
-from config.config import GEMINI_API_KEY, PROFILES, SCRAPER_CONFIG
+from config.config import GEMINI_API_KEY
+from analysis.scoring import score_job
 from db.database import fetch_all_jobs, batch_update_ai_data
 
 console = Console()
@@ -96,30 +97,15 @@ def _call_gemini(prompt: str, api_key: str) -> dict | None:
     return None
 
 
-def _adjusted_score(current: int, ai: dict, profile_cfg: dict) -> int:
-    """Aplica ajustes de score baseados na análise da IA."""
-    score = current
-
-    stance     = ai.get("visa_stance", "neutral")
-    citizen    = ai.get("requires_citizenship", False)
-    seniority  = ai.get("seniority", "any")
-    visa_req   = SCRAPER_CONFIG.get("visa_required", False)
-
-    if citizen:
-        return 0
-
-    if stance == "negative" and visa_req:
-        score = min(score, 25)
-
-    elif stance == "positive" and score < 72:
-        # IA confirmou sponsor que o regex perdeu — aplica o boost
-        score = min(100, score + 20)
-
-    # Penaliza vagas seniores em perfis focados em entrada no mercado
-    if profile_cfg.get("entry_level_boost", False) and seniority == "senior":
-        score = max(0, score - 15)
-
-    return max(0, min(100, score))
+def _ai_fields(ai: dict) -> tuple[str, str]:
+    """
+    Resposta da IA → (ai_visa_stance, ai_seniority) guardados no banco.
+    Cidadania exigida vira o stance 'citizen_required', que o scoring elimina.
+    O score em si sai de analysis/scoring.py, que lê esses campos — assim o
+    --rescore não apaga o que a IA concluiu.
+    """
+    stance = "citizen_required" if ai.get("requires_citizenship") else ai.get("visa_stance", "neutral")
+    return stance, ai.get("seniority", "any")
 
 
 def enrich_with_ai(
@@ -174,16 +160,12 @@ def enrich_with_ai(
             time.sleep(5)
             continue
 
-        cfg       = PROFILES.get(job.get("profile") or "", {})
+        stance, seniority = _ai_fields(ai)
         old_score = job.get("fit_score") or 0
-        new_score = _adjusted_score(old_score, ai, cfg)
+        new_score = score_job({**job, "ai_enriched": 1,
+                               "ai_visa_stance": stance, "ai_seniority": seniority})
 
-        pending_updates.append((
-            ai.get("visa_stance", "neutral"),
-            ai.get("seniority", "any"),
-            new_score,
-            job["id"],
-        ))
+        pending_updates.append((stance, seniority, new_score, job["id"]))
 
         delta = new_score - old_score
         if delta != 0:

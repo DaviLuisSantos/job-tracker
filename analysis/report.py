@@ -10,6 +10,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 from db.database import fetch_all_jobs, fetch_scrape_runs
+from analysis.dedupe import collapse_duplicates
 
 console = Console()
 
@@ -24,7 +25,7 @@ def generate_report(profile: str | None = None):
 
     df_all = pd.DataFrame(jobs)
 
-    # Score 0 = cidadania/working rights exigidos — disqualificador absoluto
+    # Score 0 = eliminada (cidadania/PR exigida ou cargo sênior) — ver analysis/scoring.py
     disqualified = int((df_all["fit_score"] == 0).sum())
     df = df_all[df_all["fit_score"] > 0].copy()
 
@@ -50,7 +51,7 @@ def generate_report(profile: str | None = None):
     summary.add_row("Candidaturas",      f"[blue]{int(applied)}[/blue]")
     summary.add_row("Score medio",       f"{avg_score:.1f}")
     if disqualified:
-        summary.add_row("Disqualificadas",   f"[red]{disqualified}[/red] [dim](cidadania/working rights)[/dim]")
+        summary.add_row("Disqualificadas",   f"[red]{disqualified}[/red] [dim](cidadania/PR ou cargo sênior)[/dim]")
 
     console.print(Panel(summary, title=f"Resumo{title_suffix}", border_style="cyan"))
 
@@ -77,7 +78,10 @@ def generate_report(profile: str | None = None):
         console.print(Panel(pp_table, title="Por perfil", border_style="magenta"))
 
     # ── Top vagas ─────────────────────────────────────────────
-    top_df = df[df["status"] == "new"].nlargest(10, "fit_score")
+    # Mesma vaga em várias cidades conta uma vez só
+    new_sorted = df[df["status"] == "new"].sort_values(
+        ["fit_score", "listed_at"], ascending=False)
+    top_df = pd.DataFrame(collapse_duplicates(new_sorted.to_dict("records"))[:10])
     cols = ["fit_score", "title", "company", "location", "salary"]
     if not profile:
         cols.insert(1, "profile")
@@ -99,7 +103,7 @@ def generate_report(profile: str | None = None):
         cells += [
             _safe(row["title"]),
             _safe(row["company"]),
-            _safe(row["location"]),
+            _safe(row["location_label"]),
             _safe(row["salary"]),
         ]
         top_table.add_row(*cells)

@@ -16,6 +16,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
+from analysis.dedupe import collapse_duplicates
+
 console = Console()
 ALERTS_DIR = Path(__file__).parent.parent / "data" / "alerts"
 
@@ -56,7 +58,7 @@ def _save_alert_file(jobs: list[dict]) -> Path:
             score   = job.get("fit_score", 0)
             title   = job.get("title")   or "—"
             company = job.get("company") or "—"
-            loc     = job.get("location") or "—"
+            loc     = job.get("location_label") or job.get("location") or "—"
             salary  = job.get("salary")  or "—"
             profile = job.get("profile") or "—"
             url     = job.get("url")     or ""
@@ -75,6 +77,7 @@ def notify_high_score(jobs: list[dict], min_score: int = 75):
     """
     top = [j for j in jobs if (j.get("fit_score") or 0) >= min_score]
     top.sort(key=lambda j: j.get("fit_score") or 0, reverse=True)
+    top = collapse_duplicates(top)
 
     if not top:
         return

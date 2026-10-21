@@ -53,7 +53,9 @@ job-tracker/
 ├── scrapers/seek.py          # Playwright scraper (async)
 ├── db/database.py            # SQLite — schema, queries, context manager
 └── analysis/
-    ├── scoring.py            # Cálculo de fit score 0-100
+    ├── scoring.py            # Cálculo de fit score 0-100 (única implementação)
+    ├── rescore.py            # Recalcula scores guardados quando as regras mudam
+    ├── dedupe.py             # Agrupa a mesma vaga publicada em várias cidades
     └── report.py             # Relatório com rich + pandas
 ```
 
@@ -87,14 +89,19 @@ Tabela `scrape_runs` — log de cada execução (fonte, keyword, vagas encontrad
 
 ## Fit score
 
-Definido em `analysis/scoring.py`. Base neutra de 50 pontos:
-- Cada `POSITIVE_SIGNALS` encontrado no texto: +8
-- Cada `NEGATIVE_SIGNALS` encontrado: -15
-- Menção a "sponsor": +20 (crítico para visto de trabalho)
-- "remote": +10, "hybrid": +5
-- Resultado clampado entre 0 e 100
+Definido em `analysis/scoring.py` — `explain_fit_score()` é a única implementação; `score_job()` / `explain_job()` aplicam as regras do perfil da vaga. Coleta, `--rescore`, `--explain`, web e IA usam essas funções: não reimplementar a conta em outro lugar.
 
-Para ajustar o perfil: editar `POSITIVE_SIGNALS` e `NEGATIVE_SIGNALS` em `config/config.py`.
+1. **Eliminação (score 0, nunca exibida):** cidadania/PR exigida; cargo sênior no título (`_SENIOR_TITLE_RE`, salvo se o título também tiver graduate/junior/assistant/apprentice); IA dizendo `citizen_required` ou `senior`
+2. **Pontos:** base 50; sinal positivo +16 no título / +8 no corpo; negativo −30 / −15; patrocínio +20; remote +10, hybrid +5; FIFO +15; frases de entrada +12 (perfis com `entry_level_boost`)
+3. **Limite de 100, depois penalidades:** sem patrocínio confirmado −10 (−15 se negado); publicada há mais de 14 dias −5, há mais de 30 −30
+4. **Teto de qualificação (35):** `disqualify_signals` no texto ou `qualified_titles` no título. Títulos de entrada (apprentice, offsider, assistant...) liberam os `qualified_titles`, e títulos de formação (apprentice, trainee) ignoram sinais de certificado
+5. Vagas não eliminadas ficam entre 1 e 100
+
+Os scores guardados são recalculados sozinhos quando as regras mudam (hash em `meta.scoring_rules`) e a cada coleta (a idade muda o score). Mudou a lógica em `scoring.py`? Incremente `SCORING_VERSION`.
+
+Para ajustar o perfil: editar `positive_signals`, `negative_signals`, `disqualify_signals` e `qualified_titles` em `config/config.py`. Parâmetros globais (penalidades, tetos) ficam em `SCRAPER_CONFIG`.
+
+Listas exibidas (relatório, triagem, alerta, web) agrupam a mesma vaga publicada em várias cidades (`analysis/dedupe.py`).
 
 ## Rotina diária (`run_daily` em `main.py`)
 

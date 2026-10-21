@@ -4,6 +4,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich import box
 from db.database import fetch_for_review, update_job_status, update_job_notes
+from analysis.dedupe import collapse_duplicates
 
 console = Console()
 
@@ -36,7 +37,7 @@ def _render_job(job: dict, index: int, total: int):
     score    = int(job.get("fit_score") or 0)
     title    = job.get("title")    or "—"
     company  = job.get("company")  or "—"
-    location = job.get("location") or "—"
+    location = job.get("location_label") or job.get("location") or "—"
     salary   = job.get("salary")   or "—"
     wtype    = job.get("work_type") or "—"
     profile  = job.get("profile")  or "—"
@@ -92,7 +93,7 @@ def _ask_note(job_id: str):
 
 
 def review_jobs(profile: str | None = None, min_score: int = 0):
-    jobs = fetch_for_review(profile=profile, min_score=min_score, limit=100)
+    jobs = collapse_duplicates(fetch_for_review(profile=profile, min_score=min_score, limit=100))
 
     if not jobs:
         suffix = f" com score ≥ {min_score}" if min_score else ""

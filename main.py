@@ -12,9 +12,10 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-from db.database import init_db, fetch_all_jobs, update_job_score
+from db.database import init_db, fetch_all_jobs
 from scrapers.seek import run_seek_scraper, enrich_stored_jobs
-from analysis.scoring import calculate_fit_score
+from analysis.scoring import explain_job
+from analysis.rescore import rescore_all, rescore_if_rules_changed
 from analysis.report import generate_report
 from analysis.excel_report import export_excel
 from analysis.ai_export import export_for_ai
@@ -101,6 +102,9 @@ async def run_all(profile: str | None = None, exports: bool = True):
         if isinstance(r, dict):
             all_new_jobs.extend(r.get("new_jobs", []))
 
+    # As vagas antigas envelhecem a cada dia — o score delas depende da data
+    rescore_all(profile, quiet=True)
+
     generate_report(profile)
     # Excel + Markdown para IA somam ~4 MB por execução: só no scrape manual.
     # Na rotina diária ficam sob demanda (--export / --ai-export / interface web).
@@ -113,113 +117,34 @@ async def run_all(profile: str | None = None, exports: bool = True):
     notify_high_score(all_new_jobs, min_score=alert_min)
 
 
-def rescore_all(profile: str | None = None):
-    """Re-calcula fit_score de todos os jobs com os sinais atuais do config."""
-    jobs = fetch_all_jobs(profile)
-    if not jobs:
-        console.print("[yellow]Nenhuma vaga no banco.[/yellow]")
-        return
-
-    updated = 0
-    for job in jobs:
-        cfg = PROFILES.get(job.get("profile") or "")
-        if not cfg:
-            continue
-        new_score = calculate_fit_score(
-            job,
-            cfg["positive_signals"],
-            cfg["negative_signals"],
-            cfg.get("disqualify_signals", []),
-            entry_level_boost=cfg.get("entry_level_boost", False),
-            visa_required=SCRAPER_CONFIG.get("visa_required", False),
-            no_sponsor_max=SCRAPER_CONFIG.get("no_sponsor_max_score", 72),
-        )
-        if new_score != (job.get("fit_score") or 0):
-            update_job_score(job["id"], new_score)
-            updated += 1
-
-    console.print(f"[green]Re-scored {len(jobs)} vagas — {updated} scores alterados.[/green]")
-
-
 def explain_score(job_id: str):
     """Mostra detalhes do scoring de uma vaga específica."""
-    from analysis.scoring import (
-        _CITIZEN_REQUIRED_RE, _NEG_SPONSOR_RE, _POS_SPONSOR_SIGNALS,
-        _NO_EXPERIENCE_SIGNALS,
-    )
     from rich.table import Table
     from rich import box
 
-    jobs = fetch_all_jobs()
-    job  = next((j for j in jobs if j["id"] == job_id), None)
+    job = next((j for j in fetch_all_jobs() if j["id"] == job_id), None)
     if not job:
         console.print(f"[red]Job '{job_id}' não encontrado.[/red]")
         return
 
-    cfg       = PROFILES.get(job.get("profile") or "", {})
-    title_txt = (job.get("title") or "").lower()
-    body_txt  = " ".join([
-        job.get("description") or "",
-        job.get("location")    or "",
-        job.get("work_type")   or "",
-    ]).lower()
-    full_txt  = f"{title_txt} {body_txt}"
-
+    exp = explain_job(job)
     console.print(f"\n[bold]Job:[/bold] {job.get('title')} ({job_id})")
     console.print(f"[bold]Perfil:[/bold] {job.get('profile')}")
-    console.print(f"[bold]Score atual:[/bold] {job.get('fit_score')}")
+    console.print(f"[bold]Score guardado:[/bold] {job.get('fit_score')}")
     console.print(f"\n[bold]Descrição guardada ({len(job.get('description') or '')} chars):[/bold]")
     console.print(f"[dim]{(job.get('description') or '')[:400]}[/dim]")
 
     tbl = Table(box=box.SIMPLE, show_header=True)
-    tbl.add_column("Tipo", style="dim", width=10)
-    tbl.add_column("Sinal", width=30)
+    tbl.add_column("Tipo", style="dim", width=11)
+    tbl.add_column("Sinal", width=44)
     tbl.add_column("Onde", width=8)
     tbl.add_column("Pts", justify="right")
-
-    score = 50
-    for sig in cfg.get("positive_signals", []):
-        if sig.lower() in title_txt:
-            tbl.add_row("pos", sig, "título", "+16")
-            score += 16
-        elif sig.lower() in body_txt:
-            tbl.add_row("pos", sig, "corpo", "+8")
-            score += 8
-
-    for sig in cfg.get("negative_signals", []):
-        if sig.lower() in title_txt:
-            tbl.add_row("neg", sig, "título", "-30")
-            score -= 30
-        elif sig.lower() in body_txt:
-            tbl.add_row("neg", sig, "corpo", "-15")
-            score -= 15
-
-    # Universais
-    neg_spon = bool(_NEG_SPONSOR_RE.search(full_txt))
-    pos_spon_boost = "sponsor" in full_txt and not neg_spon
-    confirmed_spon = any(s in full_txt for s in _POS_SPONSOR_SIGNALS)
-    citizen = bool(_CITIZEN_REQUIRED_RE.search(full_txt))
-
-    tbl.add_row("univ", f"sponsor negado: {neg_spon}", "—", "")
-    tbl.add_row("univ", f"sponsor boost: {pos_spon_boost}", "—",
-                "+20" if pos_spon_boost else "0")
-    if pos_spon_boost:
-        score += 20
-    tbl.add_row("univ", f"confirmed sponsor: {confirmed_spon}", "—", "")
-    tbl.add_row("univ", f"citizenship required: {citizen}", "—",
-                "cap 60" if citizen else "")
-    if citizen:
-        score = min(score, 60)
-
-    visa_req = SCRAPER_CONFIG.get("visa_required", False)
-    no_sp    = SCRAPER_CONFIG.get("no_sponsor_max_score", 72)
-    if visa_req and not citizen and not confirmed_spon:
-        tbl.add_row("univ", f"visa_required cap: {no_sp}", "—", f"cap {no_sp}")
-        score = min(score, no_sp)
+    tbl.add_row("base", "", "", f"+{exp['base']}")
+    for it in exp["items"]:
+        tbl.add_row(it["type"], it["signal"], it["where"], f"{it['pts']:+d}" if it["pts"] else "—")
 
     console.print(tbl)
-    console.print(f"\n[bold]Score recalculado:[/bold] {max(0, min(100, score))}")
-    console.print(f"[dim](POS_SPONSOR_SIGNALS no texto: {[s for s in _POS_SPONSOR_SIGNALS if s in full_txt]})[/dim]")
+    console.print(f"[bold]Score com as regras atuais:[/bold] {exp['final']}")
 
 
 def run_sync(profile: str | None = None):
@@ -256,6 +181,7 @@ def run_daily() -> bool:
 
 def main():
     init_db()
+    rescore_if_rules_changed()
     scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, daily, month, profile, min_score, port = _parse_args()
 
     if daily:

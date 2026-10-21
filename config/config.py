@@ -147,6 +147,15 @@ PROFILES = {
             "qualified tradesperson", "qualified fitter",
             "refrigeration mechanic", "hvac technician", "qualified electrician",
         ],
+        # Título de profissional formado (sem apprentice/assistant/offsider etc.)
+        # → exige qualificação. Plural é aceito ("Plumbers").
+        "qualified_titles": [
+            "electrician", "plumber", "carpenter", "mechanic", "fitter",
+            "welder", "boilermaker", "technician", "tech", "gasfitter",
+            "refrigeration mechanic", "fabricator", "sheet metal worker",
+            "scaffolder", "rigger", "joiner", "glazier", "tiler", "plasterer",
+            "installer", "estimator", "engineer",
+        ],
     },
 
     # --------------------------------------------------
@@ -202,6 +211,13 @@ PROFILES = {
             "cert III", "certificate III", "cert iv", "certificate iv",
             "qualified tradesperson", "qualified fitter", "qualified builder",
             "licensed plumber", "licensed electrician", "licensed builder",
+        ],
+        "qualified_titles": [
+            "electrician", "plumber", "carpenter", "mechanic", "fitter",
+            "welder", "boilermaker", "technician", "driller", "operator",
+            "scaffolder", "rigger", "dogman", "crane", "concreter", "caulker",
+            "concrete cutter", "formworker", "steel fixer", "landscaper",
+            "estimator", "engineer", "surveyor",
         ],
     },
 
@@ -293,6 +309,12 @@ PROFILES = {
             # descrição completa (onde "certificate III" normalmente aparece)
             "chef", "commercial cookery", "head chef",
         ],
+        "qualified_titles": [
+            "electrician", "auto electrician", "plumber", "mechanic", "fitter",
+            "diesel", "welder", "boilermaker", "technician", "tech",
+            "scaffolder", "rigger", "driller", "chef", "cook",
+            "engineer", "surveyor", "geologist", "metallurgist",
+        ],
     },
 
 }
@@ -323,11 +345,25 @@ SCRAPER_CONFIG = {
     "alert_min_score":         75,
 
     # Candidato precisa de patrocínio de visto (482 etc.).
-    # Quando True, vagas que não mencionam "sponsor/visa/482" ficam limitadas
-    # a este score máximo — reflete o risco de não conseguir aplicar.
-    # Mude para False se você já tem visto de trabalho ou PR.
+    # Quando True, vagas sem patrocínio confirmado perdem estes pontos
+    # (15 quando o anúncio nega patrocínio). Mude para False se você já tem
+    # visto de trabalho ou PR.
     "visa_required":           True,
-    "no_sponsor_max_score":    72,
+    "no_sponsor_penalty":      10,
+
+    # Cargo sênior/gestão no título (senior, lead, manager, architect...)
+    # elimina a vaga (score 0). Lista em _SENIOR_TITLE_RE de analysis/scoring.py.
+    "exclude_senior_titles":   True,
+
+    # Teto para vagas que exigem qualificação que você não tem
+    # (disqualify_signals e qualified_titles de cada perfil).
+    "disqualify_max_score":    35,
+
+    # Vagas velhas descem no ranking. O Seek tira anúncios do ar em ~30 dias.
+    "aging_after_days":        14,
+    "aging_penalty":           5,
+    "stale_after_days":        30,
+    "stale_penalty":           30,
 }
 
 # =====================================================

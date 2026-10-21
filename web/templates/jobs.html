@@ -87,7 +87,7 @@
         <td class="text-muted small" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
           {{ j.company or '—' }}
         </td>
-        <td class="text-muted small">{{ (j.location or '—')[:22] }}</td>
+        <td class="text-muted small">{{ (j.location_label or '—')[:30] }}</td>
         <td class="small" data-order="{{ j.salary_annual_min or 0 }}">
           {% if j.salary_annual_min %}
             <span class="text-success fw-semibold">
@@ -364,6 +364,7 @@ function loadExplain() {
       bonus:      '<span class="badge bg-primary">bônus</span>',
       cap:        '<span class="badge bg-warning text-dark">cap</span>',
       disqualify: '<span class="badge bg-dark">disq</span>',
+      age:        '<span class="badge bg-secondary">idade</span>',
       ai:         '<span class="badge bg-purple" style="background:#6f42c1">🤖 IA</span>',
     };
 

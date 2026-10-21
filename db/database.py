@@ -85,6 +85,13 @@ CREATE TABLE IF NOT EXISTS market_runs (
     ran_at        TEXT DEFAULT (datetime('now'))
 );
 
+-- Chave/valor interno. scoring_rules = hash das regras com que os scores
+-- guardados foram calculados (ver analysis/rescore.py).
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_fit_score ON jobs(fit_score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status    ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_profile   ON jobs(profile);
@@ -300,6 +307,31 @@ def update_job_score(job_id: str, fit_score: int):
         conn.execute("UPDATE jobs SET fit_score=? WHERE id=?", (fit_score, job_id))
 
 
+def batch_update_scores(updates: list[tuple[int, str]]) -> None:
+    """Atualiza fit_score em uma única transação. updates: (fit_score, job_id)."""
+    if not updates:
+        return
+    with get_conn() as conn:
+        conn.executemany("UPDATE jobs SET fit_score=? WHERE id=?", updates)
+
+
+# ── Metadados (chave/valor) ───────────────────────────────────────────────────
+
+def get_meta(key: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+
+def set_meta(key: str, value: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+
 def update_job_ai_data(job_id: str, ai_visa_stance: str, ai_seniority: str, new_score: int):
     """Salva resultado do enriquecimento por IA e ajusta o score."""
     with get_conn() as conn:
@@ -386,7 +418,7 @@ def fetch_new_jobs(profile: str | None = None) -> list[dict]:
 
 
 def fetch_for_review(profile: str | None = None, min_score: int = 0, limit: int = 100) -> list[dict]:
-    # fit_score > 0: score 0 = cidadania/working rights exigidos, nunca mostrar
+    # fit_score > 0: score 0 = eliminada (cidadania/PR, cargo sênior), nunca mostrar
     effective_min = max(min_score, 1)
     with get_conn() as conn:
         if profile:
