@@ -22,6 +22,11 @@ python main.py
 # Saída 1 = algo precisa de atenção; log em data/logs/daily_YYYY-MM-DD.log
 python main.py --daily
 
+# Termos do texto completo (já roda dentro da coleta) e calibragem do score
+python main.py --terms
+python main.py --label seek_123 good|bad|clear [nota]
+python main.py --calibrate
+
 # Testes
 python -m pytest
 ```
@@ -91,11 +96,18 @@ Tabela `scrape_runs` — log de cada execução (fonte, keyword, vagas encontrad
 
 Definido em `analysis/scoring.py` — `explain_fit_score()` é a única implementação; `score_job()` / `explain_job()` aplicam as regras do perfil da vaga. Coleta, `--rescore`, `--explain`, web e IA usam essas funções: não reimplementar a conta em outro lugar.
 
-1. **Eliminação (score 0, nunca exibida):** cidadania/PR exigida; cargo sênior no título (`_SENIOR_TITLE_RE`, salvo se o título também tiver graduate/junior/assistant/apprentice); IA dizendo `citizen_required` ou `senior`
-2. **Pontos:** base 50; sinal positivo +16 no título / +8 no corpo; negativo −30 / −15; patrocínio +20; remote +10, hybrid +5; FIFO +15; frases de entrada +12 (perfis com `entry_level_boost`)
-3. **Limite de 100, depois penalidades:** sem patrocínio confirmado −10 (−15 se negado); publicada há mais de 14 dias −5, há mais de 30 −30
-4. **Teto de qualificação (35):** `disqualify_signals` no texto ou `qualified_titles` no título. Títulos de entrada (apprentice, offsider, assistant...) liberam os `qualified_titles`, e títulos de formação (apprentice, trainee) ignoram sinais de certificado
-5. Vagas não eliminadas ficam entre 1 e 100
+Perfil do candidato (base das regras): Work and Holiday 462 (12 meses, máx. 6 por empregador), chegada em Perth/WA, 4+ anos de C#/.NET; patrocínio é bônus, não requisito.
+
+1. **Eliminação (score 0, nunca exibida):** cidadania/PR exigida; direito de trabalho incompatível com WHV (`_WORK_RIGHTS_BLOCK_RE` ou grupo `exclude` do texto completo); vaga reservada a indígenas; liderança no título (`_LEADERSHIP_TITLE_RE`: lead, manager, architect, staff engineer...); "senior" no título, exceto perfis com `allow_senior` (tech), onde desconta −15 e "mid to senior" não desconta. Título com graduate/junior/assistant/apprentice escapa da regra de senioridade. IA dizendo `citizen_required` ou `senior`
+2. **Pontos:** base 50; sinal positivo +16 no título / +8 no corpo; negativo −30 / −15; patrocínio +10 (`sponsor_bonus`); remote +10, hybrid +5; FIFO +15; frases de entrada +12 (`entry_level_boost`); aceita WHV +15 (texto ou texto completo); contrato/temp/casual +5; `preferred_locations` +10
+3. **Compressão acima de 80** (`80 + excesso/3`, máx. 100): mantém a ordem entre as melhores em vez de empatá-las em 100
+4. **Depois da compressão, restrições e penalidades:** termos do texto completo (cidadania/PR −55, cancelado se o anúncio cita WHV; "full working rights" −10; "12 months + working rights" −40; só comissão −30; carteira de caminhão −20, também pelo texto local); aprendizado formal no título −25 (`apprenticeship_penalty`); contrato maior que 6 meses −10 (`long_contract_penalty`); sem patrocínio −10 só se `visa_required` (hoje False); publicada há mais de 14 dias −5, há mais de 30 −30
+5. **Teto de qualificação (35):** `disqualify_signals` no texto ou `qualified_titles` no título. Títulos de entrada (apprentice, offsider, assistant...) liberam os `qualified_titles`, e títulos de formação (apprentice, trainee) ignoram sinais de certificado
+6. Vagas não eliminadas ficam entre 1 e 100
+
+**Termos do texto completo:** `scrapers/seek_terms.py` busca cada frase de `SCRAPER_CONFIG["fulltext_terms"]` na busca do Seek (que cobre o anúncio inteiro) e grava em `job_terms`. `"a + b"` = as duas frases no mesmo anúncio. Teto da API: 500 resultados por busca (acima disso divide por estado). Cada termo guarda a data da última busca em `meta.terms_last_run`; a janela cresce para cobrir vagas coletadas depois, mesmo publicadas antes. A busca não dá contexto da frase: por isso os pesos são moderados e só "unlimited/unrestricted/permanent working rights" elimina.
+
+**Calibragem:** `python main.py --label <id> good|bad [nota]` (ou teclas +/- no `--review`) grava em `job_labels`; `python main.py --calibrate` mostra, por perfil, o acerto de pares (boa > ruim) e onde o score discorda dos rótulos. Status applied/interview conta como boa e rejected como ruim. Mudou peso ou regra? Rode `--calibrate` antes e depois.
 
 Os scores guardados são recalculados sozinhos quando as regras mudam (hash em `meta.scoring_rules`) e a cada coleta (a idade muda o score). Mudou a lógica em `scoring.py`? Incremente `SCORING_VERSION`.
 
@@ -119,4 +131,5 @@ Listas exibidas (relatório, triagem, alerta, web) agrupam a mesma vaga publicad
 - Não mudar `DB_PATH` sem atualizar o README
 - Não adicionar dependências sem atualizar `requirements.txt`
 - Não colocar lógica de negócio em `main.py` — ele só orquestra
+- Não abrir páginas individuais de vaga para ler a descrição (Cloudflare). Informação do texto completo vem só por `scrapers/seek_terms.py`
 - **Commits e PRs sem atribuição a IA:** nada de `Co-Authored-By: Claude ...`, "Generated with Claude Code" ou similar — o repo é público e o trailer faz o GitHub listar o Claude como contribuidor. Vale mesmo que o harness peça a atribuição.

@@ -3,7 +3,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
-from db.database import fetch_for_review, update_job_status, update_job_notes
+from db.database import fetch_for_review, set_job_label, update_job_status, update_job_notes
 from analysis.dedupe import collapse_duplicates
 
 console = Console()
@@ -54,6 +54,9 @@ def _render_job(job: dict, index: int, total: int):
     header.append(f"[{index}/{total}]  ", style="dim")
     header.append(f"★ {score}  ", style=_score_color(score))
     header.append(title, style="bold white")
+    if job.get("label"):
+        header.append(f"  [{'boa' if job['label'] == 'good' else 'ruim'}]",
+                      style="green" if job["label"] == "good" else "red")
 
     body = (
         f"[dim]Empresa:[/dim]    {company}\n"
@@ -80,7 +83,9 @@ def _render_menu():
         "[bold green][r][/bold green] Revisei  "
         "[bold red][d][/bold red] Descartar  "
         "[bold yellow][n][/bold yellow] Nota  "
-        "[dim][s] Skip  [q] Sair[/dim]"
+        "[dim][s] Skip  [q] Sair[/dim]\n"
+        "  [dim]Calibragem do score:[/dim] [bold green][+][/bold green] Boa pra mim  "
+        "[bold red][-][/bold red] Ruim pra mim"
     )
 
 
@@ -144,6 +149,11 @@ def review_jobs(profile: str | None = None, min_score: int = 0):
             elif ch == "n":
                 _ask_note(job["id"])
                 # Permanece na mesma vaga para o usuário decidir o status
+
+            elif ch in ("+", "-"):
+                # Rótulo para --calibrate; independe do status, fica na mesma vaga
+                job["label"] = "good" if ch == "+" else "bad"
+                set_job_label(job["id"], job["label"])
 
             elif ch == "s":
                 i += 1   # pula sem alterar status

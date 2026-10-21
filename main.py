@@ -12,10 +12,11 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-from db.database import init_db, fetch_all_jobs
+from db.database import init_db, fetch_all_jobs, set_job_label
 from scrapers.seek import run_seek_scraper, enrich_stored_jobs
 from analysis.scoring import explain_job
 from analysis.rescore import rescore_all, rescore_if_rules_changed
+from analysis.calibrate import run_calibration
 from analysis.report import generate_report
 from analysis.excel_report import export_excel
 from analysis.ai_export import export_for_ai
@@ -24,6 +25,7 @@ from analysis.review import review_jobs
 from analysis.notifications import notify_high_score
 from analysis.market_report import build_market_report
 from scrapers.seek_market import run_market_snapshot
+from scrapers.seek_terms import tag_fulltext_terms
 from utils.runlog import log_to_file
 from config.config import PROFILES, SCRAPER_CONFIG, SCHEDULE_TIME
 
@@ -46,6 +48,9 @@ def _parse_args():
     market     = "--market"     in args
     market_rep = "--market-report" in args
     daily      = "--daily"      in args
+    terms      = "--terms"      in args
+    label      = "--label"      in args
+    calibrate  = "--calibrate"  in args
 
     profile   = None
     min_score = 0
@@ -78,7 +83,7 @@ def _parse_args():
         if idx + 1 < len(args) and not args[idx + 1].startswith("--"):
             month = args[idx + 1]
 
-    return scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, daily, month, profile, min_score, port
+    return scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, daily, terms, label, calibrate, month, profile, min_score, port
 
 
 async def run_all(profile: str | None = None, exports: bool = True):
@@ -101,6 +106,13 @@ async def run_all(profile: str | None = None, exports: bool = True):
     for r in results:
         if isinstance(r, dict):
             all_new_jobs.extend(r.get("new_jobs", []))
+
+    # Cláusulas de direito de trabalho ficam no texto completo do anúncio
+    try:
+        await tag_fulltext_terms()
+    except Exception:
+        console.print("[yellow]Busca de termos no texto completo falhou:[/yellow]")
+        console.print_exception()
 
     # As vagas antigas envelhecem a cada dia — o score delas depende da data
     rescore_all(profile, quiet=True)
@@ -182,7 +194,7 @@ def run_daily() -> bool:
 def main():
     init_db()
     rescore_if_rules_changed()
-    scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, daily, month, profile, min_score, port = _parse_args()
+    scrape, report, export, ai_export, review, full_desc, rescore, enrich, ai_enrich, web, explain, market, market_rep, daily, terms, label, calibrate, month, profile, min_score, port = _parse_args()
 
     if daily:
         # Uma execução e sai — para cron / systemd timer / Agendador de Tarefas.
@@ -205,6 +217,28 @@ def main():
 
     if rescore:
         rescore_all(profile)
+        return
+
+    if terms:
+        asyncio.run(tag_fulltext_terms())
+        rescore_all()
+        return
+
+    if label:
+        # --label seek_XXXXXXXX good|bad|clear [nota...]
+        args = sys.argv[1:]
+        idx  = args.index("--label")
+        rest = args[idx + 1:]
+        if len(rest) < 2 or rest[1] not in ("good", "bad", "clear"):
+            console.print("[red]Use: --label seek_XXXXXXXX good|bad|clear [nota][/red]")
+            return
+        note = " ".join(rest[2:]) or None
+        set_job_label(rest[0], None if rest[1] == "clear" else rest[1], note)
+        console.print(f"[green]{rest[0]}: {rest[1]}[/green]")
+        return
+
+    if calibrate:
+        run_calibration()
         return
 
     if explain:

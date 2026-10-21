@@ -132,14 +132,72 @@ _NO_EXPERIENCE_SIGNALS = [
 ]
 
 
-# Cargo sênior/gestão no título. Para quem busca entrada, a vaga não é aplicável
-# — elimina em vez de só tirar pontos, senão "Senior Full Stack Developer"
-# (.NET + Azure no título) empata com vagas júnior.
-_SENIOR_TITLE_RE = re.compile(
-    r'\b(?:senior|snr|sr|lead|leader|principal|head|manager|director|architect'
-    r'|superintendent|supervisor|foreman|foremen|chief|staff\s+engineer)s?\b',
+# Senioridade no título. Liderança/gestão elimina sempre; "senior" elimina nos
+# perfis de entrada e só desconta nos perfis com allow_senior (tech: 4+ anos,
+# "Mid to Senior" é exatamente o alvo).
+_SENIOR_RANK_RE = re.compile(r'\b(?:senior|snr|sr)s?\b', re.I)
+_LEADERSHIP_TITLE_RE = re.compile(
+    r'\b(?:lead|leader|principal|head|manager|director|architect'
+    r'|superintendent|supervisor|foreman|foremen|chief|staff(?:\s+[\w.-]+){0,3}?\s+engineer)s?\b',
     re.I,
 )
+_MID_TITLE_RE = re.compile(r'\b(?:mid|intermediate)\b', re.I)
+
+# Contrato mais longo que o limite de 6 meses por empregador do WHV
+_LONG_CONTRACT_RE = re.compile(
+    r'\b(?:9|12|18|24|nine|twelve|eighteen)[\s-]+months?\s+(?:fixed[\s-]term\s+)?contract'
+    r'|\b(?:1|2|one|two)[\s-]+years?\s+(?:fixed[\s-]term\s+)?contract',
+    re.I,
+)
+
+# ── Direito de trabalho (Work and Holiday 462: 12 meses, 6 por empregador) ────
+
+# Exige direito de trabalho que o WHV não dá → elimina.
+_WORK_RIGHTS_BLOCK_RE = re.compile(
+    r'(?:unlimited|unrestricted|permanent)\s+(?:australian\s+)?work(?:ing)?\s+rights'
+    r'|(?:12|twelve)\s*\+?\s*months?\s+(?:of\s+)?(?:valid\s+|remaining\s+)?(?:australian\s+)?work(?:ing)?\s+rights'
+    r'|work(?:ing)?\s+rights\s+for\s+(?:at\s+least\s+|a\s+minimum\s+of\s+|minimum\s+)?(?:12|twelve)\s+months'
+    r'|no\s+(?:temporary|working\s+holiday)\s+visas?'
+    r'|(?:temporary|working\s+holiday)\s+visa\s+holders?\s+(?:will\s+not|are\s+not|need\s+not|cannot|can\'t)'
+    r'|not\s+(?:open|available)\s+to\s+(?:temporary|working\s+holiday)\s+visa',
+    re.I,
+)
+
+# Aceita WHV / mochileiro / direito de trabalho curto → bônus.
+_WHV_FRIENDLY_RE = re.compile(
+    r'working\s+holiday|backpackers?|\b(?:417|462)\s+visa|\b88\s+days'
+    r'|second[\s-]year\s+visa|visa\s+holders\s+welcome'
+    r'|(?:6|six)\s+months?\s+(?:of\s+)?(?:valid\s+)?work(?:ing)?\s+rights'
+    r'|work(?:ing)?\s+rights\s+(?:valid\s+)?for\s+the\s+next\s+(?:6|six)\s+months',
+    re.I,
+)
+
+# Vaga reservada (identified position) — o candidato não se enquadra.
+_IDENTIFIED_ROLE_RE = re.compile(
+    r'\bindigenous\b|\bfirst\s+nations\b|aboriginal\s+(?:and/or|and|or|&)\s+torres\s+strait',
+    re.I,
+)
+
+_COMMISSION_ONLY_RE = re.compile(r'(?<!not\s)(?<!no\s)\bcommission[\s-]+(?:only|based)\b', re.I)
+
+# Carteira de caminhão (HR/HC/MR/MC) — o candidato só tem carteira de carro.
+_TRUCK_LICENCE_RE = re.compile(
+    r'\b(?:HR|HC|MR|MC)\s+(?:licen[cs]e|driver)|\b(?:HR|HC|MR|MC)\s*/\s*(?:HR|HC|MR|MC)\b'
+    r'|\bheavy\s+rigid\b',
+    re.I,
+)
+
+# Termos encontrados no TEXTO COMPLETO do anúncio pela busca do Seek
+# (scrapers/seek_terms.py). Sem contexto: só sabemos que a frase aparece.
+# Grupos e termos ficam em SCRAPER_CONFIG["fulltext_terms"]; pesos aqui.
+_FULLTEXT_POINTS = {
+    "citizen":    -55,   # cancelado quando o anúncio também cita WHV
+    "ambiguous":  -10,   # "full working rights" pode ou não incluir WHV
+    "rights_12m": -40,   # "12 months" E "working rights" no mesmo anúncio
+    "whv":         15,
+    "commission": -30,
+    "licence":    -20,
+}
 
 # Título com mais de um cargo ("Graduate/ Junior Project Manager",
 # "Foreman, Tradesman and Apprentice Plumbers") — a marca de entrada vence.
@@ -167,16 +225,17 @@ _QUALIFICATION_WORDS = ("cert", "qualif")
 # ── Score principal ───────────────────────────────────────────────────────────
 #
 # Estrutura:
-#   1. Eliminação (score 0 = nunca mostrar): cidadania/PR exigida, cargo sênior,
-#      IA dizendo que exige cidadania.
-#   2. Pontos: base 50 + sinais do perfil + patrocínio + modalidade + entrada.
+#   1. Eliminação (score 0 = nunca mostrar): cidadania/PR exigida, direito de
+#      trabalho incompatível com WHV, vaga reservada, liderança/sênior, IA.
+#   2. Pontos: base 50 + sinais do perfil + patrocínio + modalidade + entrada
+#      + direito de trabalho (texto e texto completo) + tipo + local.
 #   3. Penalidades que preservam a ordem: sem patrocínio confirmado, vaga velha.
 #   4. Teto de qualificação: exige formação que o candidato não tem.
 #
 # Vagas não eliminadas ficam entre 1 e 100 — 0 é reservado para eliminação.
 
 # Itens da explicação: type ∈ pos | neg | sponsor | sponsor_neg | bonus | cap
-#                      | disqualify | age | ai  (a interface web usa os mesmos)
+#                      | disqualify | age | visa | ai  (a interface web usa os mesmos)
 
 def _item(items: list, type_: str, signal: str, where: str, pts: int):
     items.append({"type": type_, "signal": signal, "where": where, "pts": pts})
@@ -202,6 +261,12 @@ def explain_fit_score(
     no_sponsor_penalty: int = 10,
     qualified_titles: list[str] | None = None,
     exclude_senior: bool = False,
+    allow_senior: bool = False,
+    sponsor_bonus: int = 20,
+    preferred_locations: list[str] | None = None,
+    apprenticeship_penalty: int = 0,
+    long_contract_penalty: int = 0,
+    fulltext_groups: dict[str, list[str]] | None = None,
     aging_after_days: int = 14,
     aging_penalty: int = 5,
     stale_after_days: int = 30,
@@ -233,25 +298,53 @@ def explain_fit_score(
         _item(items, "disqualify", signal, where, -50)
         return {"base": 50, "items": items, "final": 0}
 
+    # Termos do texto completo, por grupo (ver _FULLTEXT_POINTS)
+    found = {t.lower() for t in (job.get("fulltext_terms") or [])}
+    groups_hit = {
+        g: [t for t in terms if t.lower() in found]
+        for g, terms in (fulltext_groups or {}).items()
+    }
+    groups_hit = {g: ts for g, ts in groups_hit.items() if ts}
+
     # ── 1. Eliminação ────────────────────────────────────────────
     # Cidadania exigida = disqualificador absoluto para quem precisa de visto.
     if _CITIZEN_REQUIRED_RE.search(full_text):
         return excluded("Cidadania/PR exigida", "texto")
+
+    m = _WORK_RIGHTS_BLOCK_RE.search(full_text)
+    if m:
+        return excluded(f"Direito de trabalho incompatível com WHV: {m.group(0)}", "texto")
+    if "exclude" in groups_hit:
+        return excluded(f"Direito de trabalho incompatível com WHV: {groups_hit['exclude'][0]}",
+                        "texto completo")
+
+    if _IDENTIFIED_ROLE_RE.search(title_text):
+        return excluded("Vaga reservada (indígenas)", "título")
 
     ai_stance    = job.get("ai_visa_stance") if job.get("ai_enriched") else None
     ai_seniority = job.get("ai_seniority")   if job.get("ai_enriched") else None
     if ai_stance == "citizen_required":
         return excluded("IA: cidadania/PR exigida", "IA")
 
-    if exclude_senior:
-        m = _SENIOR_TITLE_RE.search(title_text)
-        if m and not _JUNIOR_TITLE_RE.search(title_text):
+    junior_title = bool(_JUNIOR_TITLE_RE.search(title_text))
+    if exclude_senior and not junior_title:
+        m = _LEADERSHIP_TITLE_RE.search(title_text)
+        if m:
+            return excluded(f"Cargo de liderança: {m.group(0)}", "título")
+        m = _SENIOR_RANK_RE.search(title_text)
+        if m and not allow_senior:
             return excluded(f"Cargo sênior: {m.group(0)}", "título")
-        if ai_seniority == "senior":
+        if ai_seniority == "senior" and not allow_senior:
             return excluded("IA: cargo sênior", "IA")
 
     training_title = bool(_TRAINING_TITLE_RE.search(title_text))
     score = 50
+
+    # Perfis com allow_senior: "senior" desconta, "mid to senior" não
+    if allow_senior and not junior_title and _SENIOR_RANK_RE.search(title_text) \
+            and not _MID_TITLE_RE.search(title_text):
+        _item(items, "neg", "Cargo sênior", "título", -15)
+        score -= 15
 
     # ── 2. Sinais do perfil ──────────────────────────────────────
     # Positivos: word boundaries + verificação de contexto negado.
@@ -286,8 +379,8 @@ def explain_fit_score(
         any(s in full_text for s in _POS_SPONSOR_SIGNALS) or ai_stance == "positive"
     )
     if sponsor_confirmed or ("sponsor" in full_text and not sponsor_neg):
-        _item(items, "sponsor", "Patrocínio mencionado", "texto", 20)
-        score += 20
+        _item(items, "sponsor", "Patrocínio mencionado", "texto", sponsor_bonus)
+        score += sponsor_bonus
     elif sponsor_neg:
         _item(items, "sponsor_neg", "Patrocínio negado", "texto", 0)
 
@@ -314,12 +407,67 @@ def explain_fit_score(
                 _item(items, "bonus", f"Entrada: {signal}", "texto", 12)
                 score += 12
 
+    # ── Direito de trabalho e condições do WHV ───────────────────
+    whv_local = _WHV_FRIENDLY_RE.search(full_text)
+    whv       = bool(whv_local) or "whv" in groups_hit
+    if whv_local:
+        _item(items, "visa", f"Aceita WHV: {whv_local.group(0)}", "texto", 15)
+        score += 15
+    elif "whv" in groups_hit:
+        _item(items, "visa", f"Aceita WHV: {groups_hit['whv'][0]}", "texto completo", 15)
+        score += 15
+
+    # Contrato/temporário/casual cabe no limite de 6 meses por empregador
+    if re.search(r'contract|temp|casual', job.get("work_type") or "", re.I):
+        _item(items, "bonus", f"Tipo: {job.get('work_type')}", "tipo", 5)
+        score += 5
+
+    location = job.get("location") or ""
+    for loc in preferred_locations or []:
+        if _compile_signal(loc).search(location):
+            _item(items, "bonus", f"Local preferido: {loc}", "local", 10)
+            score += 10
+            break
+
     # ── 3. Penalidades que preservam a ordem ─────────────────────
     # Aplicadas sobre o score já limitado a 100: se viessem antes, uma vaga com
     # 140 de pontos brutos absorveria o desconto e continuaria em 100.
-    if score > 100:
-        _item(items, "cap", "Limite de 100", "—", 100 - score)
-        score = 100
+    # Compressão acima de 80: um corte seco em 100 empatava as melhores vagas
+    # (todas com bônus de sobra); comprimir mantém a ordem entre elas.
+    if score > 80:
+        compressed = min(100, 80 + round((score - 80) / 3))
+        _item(items, "cap", "Compressão acima de 80", "—", compressed - score)
+        score = compressed
+
+    # Restrições do anúncio (texto completo e texto local) — depois do limite,
+    # senão o excesso de pontos de uma vaga boa no papel engoliria o desconto.
+    for group in ("citizen", "ambiguous", "rights_12m", "commission", "licence"):
+        if group not in groups_hit or (group in ("citizen", "rights_12m") and whv):
+            continue
+        pts = _FULLTEXT_POINTS[group]
+        _item(items, "neg" if group in ("commission", "licence") else "visa",
+              f"Menciona: {groups_hit[group][0]}", "texto completo", pts)
+        score += pts
+
+    if apprenticeship_penalty and training_title:
+        _item(items, "visa", "Aprendizado formal: costuma exigir cidadania/PR e dura anos",
+              "título", -apprenticeship_penalty)
+        score -= apprenticeship_penalty
+
+    m = _LONG_CONTRACT_RE.search(full_text)
+    if long_contract_penalty and m:
+        _item(items, "visa", f"Contrato além dos 6 meses por empregador: {m.group(0)}",
+              "texto", -long_contract_penalty)
+        score -= long_contract_penalty
+
+    m = _COMMISSION_ONLY_RE.search(full_text)
+    if m and "commission" not in groups_hit:
+        _item(items, "neg", f"Só comissão: {m.group(0)}", "texto", -30)
+        score -= 30
+    m = _TRUCK_LICENCE_RE.search(full_text)
+    if m and "licence" not in groups_hit:
+        _item(items, "neg", f"Carteira de caminhão: {m.group(0)}", "texto", -20)
+        score -= 20
 
     # Sem patrocínio confirmado: desconta, mas não achata. (O antigo teto de 72
     # empatava ~2 mil vagas no mesmo valor.)
@@ -385,6 +533,12 @@ def _profile_kwargs(profile: dict) -> dict:
         visa_required        = sc.get("visa_required", False),
         no_sponsor_penalty   = sc.get("no_sponsor_penalty", 10),
         exclude_senior       = sc.get("exclude_senior_titles", False),
+        allow_senior         = profile.get("allow_senior", False),
+        sponsor_bonus        = sc.get("sponsor_bonus", 20),
+        preferred_locations  = profile.get("preferred_locations", []),
+        apprenticeship_penalty = sc.get("apprenticeship_penalty", 0),
+        long_contract_penalty  = sc.get("long_contract_penalty", 0),
+        fulltext_groups      = sc.get("fulltext_terms", {}),
         aging_after_days     = sc.get("aging_after_days", 14),
         aging_penalty        = sc.get("aging_penalty", 5),
         stale_after_days     = sc.get("stale_after_days", 30),
@@ -416,4 +570,4 @@ def rules_fingerprint() -> str:
 
 
 # Incrementar quando a lógica deste arquivo mudar — força recálculo no banco.
-SCORING_VERSION = 2
+SCORING_VERSION = 4

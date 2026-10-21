@@ -85,6 +85,23 @@ CREATE TABLE IF NOT EXISTS market_runs (
     ran_at        TEXT DEFAULT (datetime('now'))
 );
 
+-- Frases encontradas no texto completo do anúncio pela busca do Seek
+-- (scrapers/seek_terms.py). O scoring lê como job["fulltext_terms"].
+CREATE TABLE IF NOT EXISTS job_terms (
+    job_id   TEXT NOT NULL,
+    term     TEXT NOT NULL,
+    found_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (job_id, term)
+);
+
+-- Rótulo do usuário para calibrar o score: good | bad (--label / --calibrate).
+CREATE TABLE IF NOT EXISTS job_labels (
+    job_id     TEXT PRIMARY KEY,
+    label      TEXT NOT NULL CHECK (label IN ('good', 'bad')),
+    note       TEXT,
+    labeled_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Chave/valor interno. scoring_rules = hash das regras com que os scores
 -- guardados foram calculados (ver analysis/rescore.py).
 CREATE TABLE IF NOT EXISTS meta (
@@ -315,6 +332,38 @@ def batch_update_scores(updates: list[tuple[int, str]]) -> None:
         conn.executemany("UPDATE jobs SET fit_score=? WHERE id=?", updates)
 
 
+def oldest_listing_scraped_since(since: datetime) -> str | None:
+    """listed_at mais antigo entre as vagas coletadas depois de `since` (UTC)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT MIN(listed_at) FROM jobs WHERE scraped_at >= ?",
+            (since.strftime("%Y-%m-%d %H:%M:%S"),),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def save_job_terms(rows: list[tuple[str, str]]) -> None:
+    """rows: (job_id, term). Ignora pares já gravados."""
+    if not rows:
+        return
+    with get_conn() as conn:
+        conn.executemany("INSERT OR IGNORE INTO job_terms (job_id, term) VALUES (?, ?)", rows)
+
+
+def set_job_label(job_id: str, label: str | None, note: str | None = None) -> None:
+    """label good | bad; None remove o rótulo."""
+    with get_conn() as conn:
+        if label is None:
+            conn.execute("DELETE FROM job_labels WHERE job_id=?", (job_id,))
+        else:
+            conn.execute(
+                "INSERT INTO job_labels (job_id, label, note) VALUES (?, ?, ?) "
+                "ON CONFLICT(job_id) DO UPDATE SET label=excluded.label, "
+                "note=COALESCE(excluded.note, job_labels.note), labeled_at=datetime('now')",
+                (job_id, label, note),
+            )
+
+
 # ── Metadados (chave/valor) ───────────────────────────────────────────────────
 
 def get_meta(key: str) -> str | None:
@@ -384,6 +433,19 @@ def log_run(source: str, profile: str, keyword: str, found: int, new_jobs: int):
 
 # ── Queries ───────────────────────────────────────────────────────────────────
 
+def _with_terms(conn, rows) -> list[dict]:
+    """Linhas de jobs → dicts com fulltext_terms (lista) e label (good/bad/None)."""
+    jobs  = [dict(r) for r in rows]
+    terms: dict[str, list[str]] = {}
+    for job_id, term in conn.execute("SELECT job_id, term FROM job_terms"):
+        terms.setdefault(job_id, []).append(term)
+    labels = dict(conn.execute("SELECT job_id, label FROM job_labels").fetchall())
+    for j in jobs:
+        j["fulltext_terms"] = terms.get(j["id"], [])
+        j["label"]          = labels.get(j["id"])
+    return jobs
+
+
 def fetch_all_jobs(profile: str | None = None) -> list[dict]:
     with get_conn() as conn:
         if profile:
@@ -397,7 +459,7 @@ def fetch_all_jobs(profile: str | None = None) -> list[dict]:
             rows = conn.execute(
                 "SELECT * FROM jobs ORDER BY profile, fit_score DESC, scraped_at DESC"
             ).fetchall()
-        return [dict(r) for r in rows]
+        return _with_terms(conn, rows)
 
 
 def fetch_new_jobs(profile: str | None = None) -> list[dict]:
@@ -414,7 +476,7 @@ def fetch_new_jobs(profile: str | None = None) -> list[dict]:
                 "SELECT * FROM jobs WHERE status='new' "
                 "ORDER BY profile, fit_score DESC, listed_at DESC"
             ).fetchall()
-        return [dict(r) for r in rows]
+        return _with_terms(conn, rows)
 
 
 def fetch_for_review(profile: str | None = None, min_score: int = 0, limit: int = 100) -> list[dict]:
@@ -434,7 +496,7 @@ def fetch_for_review(profile: str | None = None, min_score: int = 0, limit: int 
                 "ORDER BY profile, fit_score DESC, listed_at DESC LIMIT ?",
                 (effective_min, limit),
             ).fetchall()
-        return [dict(r) for r in rows]
+        return _with_terms(conn, rows)
 
 
 def fetch_scrape_runs(profile: str | None = None, limit: int = 10) -> list[dict]:

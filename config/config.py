@@ -12,71 +12,55 @@ GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
 PROFILES = {
 
     # --------------------------------------------------
-    # TECH — junior e graduate apenas
+    # TECH — pleno (4+ anos de C#/.NET), contrato em Perth ou remoto
     # --------------------------------------------------
     "tech": {
-        "entry_level_boost": True,
+        "entry_level_boost": False,
+        # "Senior" desconta em vez de eliminar; "Mid to Senior" não desconta.
+        # Liderança (lead, architect, manager...) continua eliminando.
+        "allow_senior": True,
         "keywords": [
-            # Junior / Graduate .NET e C#
-            "Junior .NET Developer",
-            "Junior C# Developer",
-            "Graduate .NET Developer",
-            "Graduate Software Developer",
-            "Associate .NET Developer",
-            "Junior Software Developer",
-            # Junior Full Stack / React / Node
-            "Junior Full Stack Developer",
-            "Junior Node.js Developer",
-            "Junior Backend Developer",
-            "Software Developer React Node",
-            "Associate Software Developer",
-            # Junior Azure / DevOps / Support
-            "Junior Azure Developer",
-            "Junior DevOps Engineer",
-            "Junior Integration Engineer",
-            "Support Engineer",
-            "QA Automation Engineer",
-            # Mid-level (monitorar — mercado transitório)
-            "Mid Level .NET Developer",
             ".NET Developer",
             "C# Developer",
+            "Full Stack .NET Developer",
             "Full Stack C# Developer",
-            # Nicho Defence/Government Adelaide (menor competição)
-            "Integration Engineer Adelaide",
-            "Software Engineer Defence",
-            # Sponsorship
-            "Sponsored Software Developer",
+            "React .NET Developer",
+            "Azure Integration Developer",
+            "Integration Developer",
+            "Azure Developer",
+            "Software Engineer C#",
+            "Node.js Developer",
+            ".NET Contract",
+            "C# Contract",
+            "Mid Level .NET Developer",
+            "Junior .NET Developer",
+            # Plano B na TI: suporte/integração de sistemas
+            "IT Support Engineer",
+            "Systems Integration Engineer",
         ],
         "locations": [
-            "Sydney NSW",
-            "Melbourne VIC",
-            "Brisbane QLD",
-            "Adelaide SA",
             "Perth WA",
-            "Canberra ACT",
             "All Australia",
         ],
+        "preferred_locations": ["Perth"],
         "positive_signals": [
-            "C#", ".NET", "Node.js", "React", "TypeScript",
-            "Azure", "REST API", "microservices", "SQL Server",
-            "integration", "Azure Service Bus", "Logic Apps",
-            "junior", "graduate", "associate", "entry level",
-            "remote", "hybrid", "482", "employer sponsored", "relocation",
-            "mid-level", "mid level",
+            "C#", ".NET", "ASP.NET", "Node.js", "React", "Next.js", "TypeScript",
+            "Azure", "Docker", "REST API", "microservices", "SQL Server",
+            "integration", "Azure Service Bus", "Logic Apps", "Azure Functions",
+            "mid-level", "mid level", "intermediate", "junior",
+            "contract", "6 month", "6-month", "immediate start", "relocation",
         ],
         "negative_signals": [
             "citizens only", "no sponsorship", "permanent residents only",
             "australian citizenship", "permanent resident",
-            "AWS only", "NV1", "NV2",
+            "AWS only", "NV1", "NV2", "baseline clearance", "clearance",
+            "federal government", "federal govt", "APS", "Department of Defence",
             "security clearance required", "Australian citizenship required",
-            # Cargos seniores — descartam candidato júnior
-            "senior developer", "senior engineer", "senior consultant",
-            "tech lead", "lead developer", "principal engineer",
-            "solution architect", "enterprise architect", "staff engineer",
-            # Experiência excessiva
-            "10+ years", "8+ years", "7+ years", "6+ years", "5+ years",
-            "demonstrated experience", "extensive experience",
-            # Setores irrelevantes
+            # Experiência acima dos 4+ anos
+            "10+ years", "8+ years", "7+ years", "6+ years",
+            "extensive experience",
+            # Fora da área
+            "structural engineer", "civil engineer", "mechanical engineer",
             "stylist", "salon", "hairdresser", "beauty therapist",
             "hospitality", "barista", "chef", "nurse", "nursing",
             "real estate", "insurance", "financial planner",
@@ -95,17 +79,16 @@ PROFILES = {
             "Trade Assistant Carpenter",
             "Trade Assistant Welder",
             "Trade Assistant HVAC",
-            # Aprendizes gerais
-            "Apprentice Electrician",
-            "Apprentice Plumber",
-            "Apprentice Carpenter",
-            "Apprentice Mechanic",
-            # HVAC-R entrada (Plano B — fase apprentice)
-            "Apprentice Refrigeration Mechanic",
-            "Air Conditioning Mechanic Apprentice",
-            "Refrigeration Apprentice",
+            # HVAC-R entrada como ajudante — aprendizado formal costuma exigir
+            # cidadania/PR e dura anos (penalizado em apprenticeship_penalty)
             "HVAC Offsider",
             "Offsider HVAC",
+            "Air Conditioning Installer Assistant",
+            "HVAC Installer",
+            "Duct Installer",
+            "Ductwork Installer",
+            "Refrigeration Trade Assistant",
+            "Electrical Trade Assistant",
         ],
         "locations": [
             "All Australia",
@@ -114,8 +97,9 @@ PROFILES = {
             "Sydney NSW",
             "Darwin NT",
         ],
+        "preferred_locations": ["WA"],
         "positive_signals": [
-            "482", "491", "employer sponsored", "relocation",
+            "relocation",
             "accommodation", "tool allowance",
             "apprenticeship", "traineeship",
             "no experience", "will train", "training provided",
@@ -177,14 +161,16 @@ PROFILES = {
         ],
         "locations": [
             "All Australia",
+            "Perth WA",
             "Sydney NSW",
             "Melbourne VIC",
             "Brisbane QLD",
             "Townsville QLD",
             "Darwin NT",
         ],
+        "preferred_locations": ["WA"],
         "positive_signals": [
-            "482", "491", "employer sponsored", "relocation",
+            "relocation",
             "no experience", "will train", "training provided",
             "entry level", "school leaver", "white card",
             "PPE provided", "immediate start", "labour hire",
@@ -248,8 +234,6 @@ PROFILES = {
             # Aprendizes FIFO
             "FIFO Apprentice Mechanic",
             "Mining Apprentice",
-            # Sponsorship específico para mining/construção (mais restrito que o anterior)
-            "482 Visa Sponsorship Mining",
         ],
         "locations": [
             "All Australia",
@@ -258,11 +242,11 @@ PROFILES = {
             "Brisbane QLD",
             "Karratha WA",
         ],
+        "preferred_locations": ["WA"],
         "positive_signals": [
             "FIFO", "fly-in fly-out", "DIDO", "relocation",
             "accommodation provided", "meals provided", "roster",
             "8:6", "2:1", "4:1", "20:8", "14:7",
-            "482", "491", "employer sponsored", "482 eligible", "491 eligible",
             "no experience", "will train", "training provided",
             "entry level", "school leaver", "apprentice",
             "mining", "resources", "oil", "gas", "shutdown",
@@ -313,10 +297,58 @@ PROFILES = {
             "electrician", "auto electrician", "plumber", "mechanic", "fitter",
             "diesel", "welder", "boilermaker", "technician", "tech",
             "scaffolder", "rigger", "driller", "chef", "cook",
+            "sheet metal worker", "insulator", "fabricator",
             "engineer", "surveyor", "geologist", "metallurgist",
         ],
     },
 
+
+    # --------------------------------------------------
+    # REGIONAL — os 88 dias do 2º ano no interior de WA
+    # Confira na Home Affairs se a função/CEP contam como "specified work"
+    # para o 462 — o score não verifica isso.
+    # --------------------------------------------------
+    "regional": {
+        "entry_level_boost": True,
+        "keywords": [
+            "Farm Hand",
+            "Farm Worker",
+            "Fruit Picker",
+            "Harvest Worker",
+            "Packing Shed",
+            "Packhouse",
+            "Vineyard Worker",
+            "Orchard Worker",
+            "Station Hand",
+            "Horticulture",
+            "Grain Harvest",
+        ],
+        "locations": [
+            "Geraldton WA",
+            "Northam WA",
+            "York WA",
+            "Manjimup WA",
+            "Carnarvon WA",
+            "Western Australia",
+        ],
+        "preferred_locations": ["Geraldton", "Northam", "York", "Manjimup", "Carnarvon"],
+        "positive_signals": [
+            "88 days", "second year", "regional", "working holiday", "backpacker",
+            "accommodation", "accommodation provided", "harvest", "picking", "packing",
+            "pruning", "farm", "orchard", "vineyard", "casual", "immediate start",
+            "no experience", "training provided",
+        ],
+        "negative_signals": [
+            "citizens only", "permanent residents only", "australian citizenship",
+            "permanent resident", "supervisor", "manager", "agronomist",
+            # Perth metropolitana não é "regional" para os 88 dias
+            "Perth WA",
+            "5+ years", "3+ years", "2+ years",
+        ],
+        "qualified_titles": [
+            "mechanic", "agronomist", "operator", "electrician", "technician",
+        ],
+    },
 }
 
 SCRAPER_CONFIG = {
@@ -344,12 +376,37 @@ SCRAPER_CONFIG = {
     # Score mínimo para disparar notificação ao final do scrape
     "alert_min_score":         75,
 
-    # Candidato precisa de patrocínio de visto (482 etc.).
-    # Quando True, vagas sem patrocínio confirmado perdem estes pontos
-    # (15 quando o anúncio nega patrocínio). Mude para False se você já tem
-    # visto de trabalho ou PR.
-    "visa_required":           True,
+    # Patrocínio (482) é bônus para depois, não requisito: com Work and Holiday
+    # 462 o candidato já pode trabalhar. True = vagas sem patrocínio confirmado
+    # perdem no_sponsor_penalty pontos (15 se o anúncio nega patrocínio).
+    "visa_required":           False,
     "no_sponsor_penalty":      10,
+    "sponsor_bonus":           10,
+
+    # Termos procurados no TEXTO COMPLETO dos anúncios pela busca do Seek
+    # (scrapers/seek_terms.py) — as páginas de vaga estão bloqueadas, mas a
+    # busca cobre o anúncio inteiro. A busca só diz que a frase aparece, sem
+    # contexto: os pesos (em analysis/scoring.py) são moderados por isso.
+    #   exclude    → elimina (direito de trabalho que o WHV não dá)
+    #   citizen    → −55, exceto se o anúncio também citar WHV
+    #   ambiguous  → −10
+    #   whv        → +15
+    #   commission → −30   licence → −20 (carteira de caminhão)
+    #   rights_12m → −40 (exige 12 meses de direito de trabalho)
+    #   "a + b" = as duas frases no mesmo anúncio (busca com AND)
+    "fulltext_terms": {
+        "exclude": [
+            "unlimited working rights", "unlimited australian working rights",
+            "unrestricted working rights", "unrestricted australian working rights",
+            "permanent working rights", "permanent australian working rights",
+        ],
+        "citizen":    ["australian citizen", "permanent resident"],
+        "ambiguous":  ["full working rights", "full australian working rights"],
+        "whv":        ["working holiday", "backpackers", "88 days"],
+        "commission": ["commission only"],
+        "licence":    ["HR licence", "heavy rigid"],
+        "rights_12m": ["12 months + working rights"],
+    },
 
     # Cargo sênior/gestão no título (senior, lead, manager, architect...)
     # elimina a vaga (score 0). Lista em _SENIOR_TITLE_RE de analysis/scoring.py.
@@ -358,6 +415,14 @@ SCRAPER_CONFIG = {
     # Teto para vagas que exigem qualificação que você não tem
     # (disqualify_signals e qualified_titles de cada perfil).
     "disqualify_max_score":    35,
+
+    # Aprendizado formal (apprenticeship/traineeship de anos) com WHV: costuma
+    # exigir cidadania/PR e não cabe nos 6 meses por empregador. Desconto, não
+    # eliminação — há programas abertos a visto temporário.
+    "apprenticeship_penalty":  25,
+
+    # Contrato mais longo que os 6 meses por empregador (condição 8547)
+    "long_contract_penalty":   10,
 
     # Vagas velhas descem no ranking. O Seek tira anúncios do ar em ~30 dias.
     "aging_after_days":        14,
