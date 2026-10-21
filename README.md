@@ -21,7 +21,25 @@ python main.py --report
 
 # Daemon com execução agendada (padrão: 8h todo dia)
 python main.py
+
+# Rotina diária uma vez e sai (coleta + Raio-X; log em data/logs/)
+python main.py --daily
 ```
+
+### Agendamento no Windows
+
+A rotina diária roda pelo Agendador de Tarefas, via `run.ps1` (que entra na pasta do projeto e usa o `.venv`).
+Para registrar a tarefa `JobTracker Daily` às 8h (se o PC estiver desligado nesse horário, ela roda assim que possível):
+
+```powershell
+$root = 'D:\Projetos\job-tracker'
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$root\run.ps1`" --daily" -WorkingDirectory $root
+$trigger = New-ScheduledTaskTrigger -Daily -At '08:00'
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName 'JobTracker Daily' -Action $action -Trigger $trigger -Settings $settings
+```
+
+Ela só roda com o usuário logado. Para conferir: `Get-ScheduledTaskInfo 'JobTracker Daily'` (`LastTaskResult` 1 = algo precisa de atenção — ver o log do dia).
 
 ## Configuração
 
